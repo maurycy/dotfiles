@@ -9,6 +9,7 @@ if ($?prompt) then
 	set autocorrect
 	set autoexpand
 	set echo_style = both
+	set edit = vim
 	set fignore = ( .o ~ % )
 	set filec
 	set noclobber
