@@ -13,8 +13,9 @@ if ($?prompt) then
 	set noclobber
 	set nobeep
 	set notify
-	set prompt = "[%P] [%t] [%h] %m:%B%n%b:%~%# "
+	set prompt = "[%P] [%l] [%h] %M:%B%n%b:%~%# "
 	# set prompt = "%m:%B%n%b:%~%# "
+	set promptchars = '>'
 	set rmstar
 	set watch = (0 any any)
 
