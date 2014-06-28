@@ -21,7 +21,7 @@ if ($?prompt) then
 
 	alias . source
 	alias a 'tmux attach'
-	alias d 'df -h'
+	alias d 'df -Hi'
 
 	bindkey '^L' clear-screen
 	bindkey '^W' backward-delete-word
