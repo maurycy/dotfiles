@@ -1,0 +1,11 @@
+[alias]
+	ci = commit -a
+	co = checkout
+	st = status
+	br = branch
+
+[core]
+	editor = vim
+
+[merge]
+	summary = true
