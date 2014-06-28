@@ -1,0 +1,41 @@
+# $OpenBSD: dot.cshrc,v 1.7 2009/01/30 08:42:26 sobrado Exp $
+#
+# csh initialization
+
+set path = (/usr/local/{bin,sbin} /usr/{bin,sbin} /{bin,sbin})
+
+if ($?prompt) then
+	# An interactive shell -- set some stuff up
+	set autocorrect
+	set autoexpand
+	set fignore = ( .o ~ % )
+	set filec
+	set noclobber
+	set nobeep
+	set notify
+	set prompt = "[%P] [%t] [%h] %m:%B%n%b:%~%# "
+	# set prompt = "%m:%B%n%b:%~%# "
+	set rmstar
+	set watch = (0 any any)
+
+	alias . source
+	alias a 'tmux attach'
+
+	bindkey '^L' clear-screen
+	bindkey '^W' backward-delete-word
+	bindkey '^U' kill-whole-line
+	bindkey "^X" list-choices
+
+	if ($OSTYPE == 'darwin') then
+		set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
+
+		alias e 'open -a TextMate.app'
+		alias l ls -lh
+		alias la ls -A@ceFlh
+		alias ll ls -lh@i
+		alias lla ls -l@iA
+	endif
+
+	cd .
+	umask 77
+endif
