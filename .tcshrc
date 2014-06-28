@@ -8,6 +8,7 @@ if ($?prompt) then
 	# An interactive shell -- set some stuff up
 	set autocorrect
 	set autoexpand
+	set echo_style = both
 	set fignore = ( .o ~ % )
 	set filec
 	set noclobber
@@ -34,6 +35,7 @@ if ($?prompt) then
 		alias e 'open -a TextMate.app'
 		alias l ls -lh
 		alias ll ls -A@cFl
+		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
 	endif
 
 	cd .
