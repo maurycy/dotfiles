@@ -20,6 +20,8 @@ if ($?prompt) then
 	set rmstar
 	set watch = (0 any any)
 
+	unset autorehash
+
 	alias . source
 	alias a 'tmux attach'
 	alias d 'df -Hi'
