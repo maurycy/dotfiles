@@ -31,9 +31,7 @@ if ($?prompt) then
 
 		alias e 'open -a TextMate.app'
 		alias l ls -lh
-		alias la ls -A@ceFlh
-		alias ll ls -lh@i
-		alias lla ls -l@iA
+		alias ll ls -A@cFl
 	endif
 
 	cd .
