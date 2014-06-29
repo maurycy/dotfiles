@@ -16,7 +16,7 @@ if ($?prompt) then
 	set nobeep
 	set noding
 	set notify
-	set prompt = "[%P] [%l] [%h] %M:%B%n%b:%~%# "
+	set prompt = "[%P] [%l] [%h] %m:%B%n%b:%~%# "
 	# set prompt = "%m:%B%n%b:%~%# "
 	set promptchars = '>#'
 	set rmstar
