@@ -18,7 +18,7 @@ if ($?prompt) then
 	set notify
 	set prompt = "[%P] [%l] [%h] %M:%B%n%b:%~%# "
 	# set prompt = "%m:%B%n%b:%~%# "
-	set promptchars = '>'
+	set promptchars = '>#'
 	set rmstar
 	set watch = (0 any any)
 
