@@ -22,6 +22,8 @@ if ($?prompt) then
 	set rmstar
 	set watch = (0 any any)
 
+	setenv EDITOR vim
+
 	unset autorehash
 
 	alias . source
