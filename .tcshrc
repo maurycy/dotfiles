@@ -44,6 +44,12 @@ if ($?prompt) then
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
 	endif
 
+	if ($OSTYPE == 'linux') then
+		alias l ls -lh
+		alias ll ls -AcfLl
+		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
+	endif
+
 	cd .
 	umask 77
 endif
