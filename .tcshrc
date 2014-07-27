@@ -51,5 +51,5 @@ if ($?prompt) then
 	endif
 
 	cd .
-	umask 77
+	umask 22
 endif
