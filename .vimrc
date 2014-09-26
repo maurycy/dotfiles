@@ -90,3 +90,5 @@ if !exists(":DiffOrig")
   command DiffOrig vert new | set bt=nofile | r ++edit # | 0d_ | diffthis
 		  \ | wincmd p | diffthis
 endif
+
+au FileType python set softtabstop=4 | set shiftwidth=4
