@@ -44,10 +44,12 @@ if ($?prompt) then
 		alias ll ls -A@cFl
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
 
-		setenv ARCHFLAGS '-arch x86_64'
-		setenv HOMEBREW_GITHUB_API_TOKEN \
-			0000000000000000000000000000000000000000
-		setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
+		if ($HOST == 'g') then
+			setenv ARCHFLAGS '-arch x86_64'
+			setenv HOMEBREW_GITHUB_API_TOKEN \
+				0000000000000000000000000000000000000000
+			setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
+		endif
 	endif
 
 	if ($OSTYPE == 'linux') then
