@@ -46,7 +46,7 @@ if ($?prompt) then
 
 		if ($HOST == 'g') then
 			setenv ARCHFLAGS '-arch x86_64'
-			setenv GOPATH `go env GOPATH`
+			setenv GOPATH $HOME/src/go
 			setenv GOROOT `go env GOROOT`
 			setenv HOMEBREW_GITHUB_API_TOKEN \
 				0000000000000000000000000000000000000000
