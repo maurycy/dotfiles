@@ -52,6 +52,7 @@ if ($?prompt) then
 				0000000000000000000000000000000000000000
 			setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
 
+			set path = (/usr/local/opt/go/libexec/bin $path)
 			set path = ($GOPATH/bin $path)
 
 			unsetenv LC_CTYPE
