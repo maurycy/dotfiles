@@ -100,6 +100,5 @@ if exists("g:did_load_filetypes")
   filetype plugin indent off
 endif
 
-set runtimepath+=$GOROOT/misc/vim
 filetype plugin indent on
 syntax on
