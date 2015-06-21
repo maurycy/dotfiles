@@ -36,7 +36,7 @@ if ($?prompt) then
 	bindkey '^U' kill-whole-line
 	bindkey "^X" list-choices
 
-	if ($OSTYPE == 'darwin') then
+	if (`uname -s` == 'Darwin') then
 		set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
 
 		alias e 'open -a TextMate.app'
