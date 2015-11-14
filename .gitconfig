@@ -1,8 +1,8 @@
 [alias]
-	ci = commit -a
+	b = branch
+	ci = commit
 	co = checkout
-	st = status
-	br = branch
+	st = status -sb
 
 [core]
 	editor = vim
