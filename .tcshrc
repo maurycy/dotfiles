@@ -42,6 +42,7 @@ if ($?prompt) then
 		alias l ls -lh
 		alias ll ls -A@cFl
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
+		alias subl '/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl'
 
 		if ($HOST == 'g') then
 			setenv ARCHFLAGS '-arch x86_64'
