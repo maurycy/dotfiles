@@ -39,7 +39,6 @@ if ($?prompt) then
 	if (`uname -s` == 'Darwin') then
 		set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
 
-		alias e 'open -a TextMate.app'
 		alias l ls -lh
 		alias ll ls -A@cFl
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
