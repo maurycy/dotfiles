@@ -24,6 +24,8 @@ if ($?prompt) then
 	set watch = (0 any any)
 
 	setenv EDITOR vim
+	setenv LANG en_US.UTF-8
+	setenv LC_ALL en_US.UTF-8
 
 	unset autorehash
 
