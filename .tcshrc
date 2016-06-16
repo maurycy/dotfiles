@@ -31,7 +31,6 @@ if ($?prompt) then
 
 	alias . source
 	alias a 'tmux attach'
-	alias d 'df -Hi'
 
 	bindkey '^L' clear-screen
 	bindkey '^W' backward-delete-word
@@ -39,24 +38,34 @@ if ($?prompt) then
 	bindkey "^X" list-choices
 
 	if (`uname -s` == 'Darwin') then
+		# homebrew
 		set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
 
+		# Android-SDK
+		set path = ($home/Library/Android/sdk/platform-tools $path)
+
+		alias d 'df -Hi'
+		alias e 'open -a TextMate.app'
 		alias l ls -lh
 		alias ll ls -A@cFl
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
-		alias subl '/Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl'
+		alias subl 'open -a "Sublime Text.app"'
 
 		if ($HOST == 'g') then
 			setenv ARCHFLAGS '-arch x86_64'
+			setenv ELASTICSEARCH_URL \
+				'http://localhost:9200/'
 			setenv HOMEBREW_GITHUB_API_TOKEN \
 				0000000000000000000000000000000000000000
 			setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
+			setenv DISABLE_PRY_RAILS 1
 
 			unsetenv LC_CTYPE
 		endif
 	endif
 
 	if ($OSTYPE == 'linux') then
+		alias d 'df -h'
 		alias l ls -lh
 		alias ll ls -AcfLl
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
