@@ -53,8 +53,6 @@ if ($?prompt) then
 
 		if ($HOST == 'h') then
 			setenv ARCHFLAGS '-arch x86_64'
-			setenv ELASTICSEARCH_URL \
-				'http://localhost:9200/'
 			setenv HOMEBREW_GITHUB_API_TOKEN \
 				0000000000000000000000000000000000000000
 			setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
