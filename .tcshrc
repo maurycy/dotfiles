@@ -51,7 +51,7 @@ if ($?prompt) then
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
 		alias subl 'open -a "Sublime Text.app"'
 
-		if ($HOST == 'h') then
+		if ($HOST == 'i') then
 			setenv ARCHFLAGS '-arch x86_64'
 			setenv HOMEBREW_GITHUB_API_TOKEN \
 				0000000000000000000000000000000000000000
