@@ -45,11 +45,10 @@ if ($?prompt) then
 		set path = ($home/Library/Android/sdk/platform-tools $path)
 
 		alias d 'df -Hi'
-		alias e 'open -a TextMate.app'
+		alias e 'open -a "Sublime Text.app"'
 		alias l ls -lh
 		alias ll ls -A@cFl
 		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
-		alias subl 'open -a "Sublime Text.app"'
 
 		if ($HOST == 'i') then
 			setenv ARCHFLAGS '-arch x86_64'
