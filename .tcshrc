@@ -62,6 +62,9 @@ if ($?prompt) then
 	endif
 
 	if ($OSTYPE == 'linux') then
+        # home local
+        set path = ($home/local/{bin,sbin} $path)
+
 		alias d 'df -h'
 		alias l ls -lh
 		alias ll ls -AcfLl
