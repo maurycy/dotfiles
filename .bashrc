@@ -124,3 +124,6 @@ if ! shopt -oq posix; then
 fi
 
 bind '"\C-w":unix-filename-rubout'
+
+# TODO
+export PATH=$HOME/local/bin:$PATH
