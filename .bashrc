@@ -63,6 +63,11 @@ else
 fi
 unset color_prompt force_color_prompt
 
+reset=$(tput sgr0)
+bold=$(tput bold)
+
+PS1="[$( tty | sed -e "s:/dev/::")] [\T] $bold\u$reset@\h:\w\$ "
+
 # If this is an xterm set the title to user@host:dir
 case "$TERM" in
 xterm*|rxvt*)
