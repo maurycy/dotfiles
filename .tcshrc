@@ -5,72 +5,72 @@
 set path = (/usr/local/{bin,sbin} /usr/{bin,sbin} /{bin,sbin})
 
 if ($?prompt) then
-	# An interactive shell -- set some stuff up
-	set autocorrect
-	set autoexpand
-	set echo_style = both
-	set edit = vim
-	set fignore = ( .o ~ % )
-	set filec
-	set noclobber
-	set nobeep
-	set noding
-	set notify
-	# set prompt = "[%P] [%l] [%h] %m:%B%n%b:%~%# "
-	# set prompt = "%m:%B%n%b:%~%# "
-	set prompt = "[%P] %m:%B%n%b:%~%# "
-	set promptchars = '>#'
-	set rmstar
-	set watch = (0 any any)
+    # An interactive shell -- set some stuff up
+    set autocorrect
+    set autoexpand
+    set echo_style = both
+    set edit = vim
+    set fignore = ( .o ~ % )
+    set filec
+    set noclobber
+    set nobeep
+    set noding
+    set notify
+    # set prompt = "[%P] [%l] [%h] %m:%B%n%b:%~%# "
+    # set prompt = "%m:%B%n%b:%~%# "
+    set prompt = "[%P] %m:%B%n%b:%~%# "
+    set promptchars = '>#'
+    set rmstar
+    set watch = (0 any any)
 
-	setenv EDITOR vim
-	setenv LANG en_US.UTF-8
-	setenv LC_ALL en_US.UTF-8
+    setenv EDITOR vim
+    setenv LANG en_US.UTF-8
+    setenv LC_ALL en_US.UTF-8
 
-	unset autorehash
+    unset autorehash
 
-	alias . source
-	alias a 'tmux attach'
+    alias . source
+    alias a 'tmux attach'
 
-	bindkey '^L' clear-screen
-	bindkey '^W' backward-delete-word
-	bindkey '^U' kill-whole-line
-	bindkey "^X" list-choices
+    bindkey '^L' clear-screen
+    bindkey '^W' backward-delete-word
+    bindkey '^U' kill-whole-line
+    bindkey "^X" list-choices
 
-	if (`uname -s` == 'Darwin') then
-		# homebrew
-		set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
+    if (`uname -s` == 'Darwin') then
+        # homebrew
+        set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
 
-		# Android-SDK
-		set path = ($home/Library/Android/sdk/platform-tools $path)
+        # Android-SDK
+        set path = ($home/Library/Android/sdk/platform-tools $path)
 
-		alias d 'df -Hi'
-		alias e 'open -a "Sublime Text.app"'
-		alias l ls -lh
-		alias ll ls -A@cFl
-		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
+        alias d 'df -Hi'
+        alias e 'open -a "Sublime Text.app"'
+        alias l ls -lh
+        alias ll ls -A@cFl
+        alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
 
-		if ($HOST == 'i') then
-			setenv ARCHFLAGS '-arch x86_64'
-			setenv HOMEBREW_GITHUB_API_TOKEN \
-				0000000000000000000000000000000000000000
-			setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
-			setenv DISABLE_PRY_RAILS 1
+        if ($HOST == 'i') then
+            setenv ARCHFLAGS '-arch x86_64'
+            setenv HOMEBREW_GITHUB_API_TOKEN \
+                0000000000000000000000000000000000000000
+                setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
+                setenv DISABLE_PRY_RAILS 1
 
-			unsetenv LC_CTYPE
-		endif
-	endif
+                unsetenv LC_CTYPE
+            endif
+        endif
 
-	if ($OSTYPE == 'linux') then
-        # home local
-        set path = ($home/local/{bin,sbin} $path)
+        if ($OSTYPE == 'linux') then
+            # home local
+            set path = ($home/local/{bin,sbin} $path)
 
-		alias d 'df -h'
-		alias l ls -lh
-		alias ll ls -AcfLl
-		alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
-	endif
+            alias d 'df -h'
+            alias l ls -lh
+            alias ll ls -AcfLl
+            alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
+        endif
 
-	cd .
-	umask 22
-endif
+        cd .
+        umask 22
+    endif
