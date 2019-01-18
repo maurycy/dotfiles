@@ -8,6 +8,7 @@ if ($?prompt) then
     # An interactive shell -- set some stuff up
     set autocorrect
     set autoexpand
+    set autolist
     set echo_style = both
     set edit = vim
     set fignore = ( .o ~ % )
@@ -37,40 +38,20 @@ if ($?prompt) then
     bindkey '^U' kill-whole-line
     bindkey "^X" list-choices
 
-    if (`uname -s` == 'Darwin') then
-        # homebrew
-        set path = ($home/local/{bin,sbin} /opt/local/{bin,sbin} $path)
+    # Golang
+    setenv GOPATH $home/go
+    set path = ($GOPATH/bin $path)
 
-        # Android-SDK
-        set path = ($home/Library/Android/sdk/platform-tools $path)
+    if ($OSTYPE == 'linux') then
+        set path = ($home/local/{bin,sbin} $path)
+        set prompt = "[%P] %m:%B%n%b:%~%# "
 
-        alias d 'df -Hi'
-        alias e 'open -a "Sublime Text.app"'
-        alias l ls -lh
-        alias ll ls -A@cFl
+        alias d 'df -hT --sync'
+        alias l 'ls -lh --color=auto'
+        alias ll 'ls -AcfLl --color=auto'
         alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
-
-        if ($HOST == 'i') then
-            setenv ARCHFLAGS '-arch x86_64'
-            setenv HOMEBREW_GITHUB_API_TOKEN \
-                0000000000000000000000000000000000000000
-                setenv PKG_CONFIG_PATH "/opt/X11/lib/pkgconfig"
-                setenv DISABLE_PRY_RAILS 1
-
-                unsetenv LC_CTYPE
-            endif
-        endif
-
-        if ($OSTYPE == 'linux') then
-            # home local
-            set path = ($home/local/{bin,sbin} $path)
-
-            alias d 'df -h'
-            alias l ls -lh
-            alias ll ls -AcfLl
-            alias precmd 'echo -n "\033]0;${HOST}:$cwd\007"'
-        endif
-
-        cd .
-        umask 22
     endif
+
+    cd .
+    umask 22
+endif
