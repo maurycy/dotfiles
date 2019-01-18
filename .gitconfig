@@ -1,11 +1,11 @@
 [alias]
-	b = branch
-	ci = commit
-	co = checkout
-	st = status -sb
+    b = branch
+    ci = commit
+    co = checkout
+    st = status -sb
 
 [core]
-	editor = vim
+    editor = vim
 
 [merge]
-	summary = true
+    summary = true
