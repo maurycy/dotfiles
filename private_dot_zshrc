@@ -100,6 +100,29 @@ fi
 
 # nvm (lazy-loaded)
 export NVM_DIR="$HOME/.nvm"
+# Add default node to PATH for global npm binaries (codex, etc.)
+if [ -d "$NVM_DIR/versions/node" ]; then
+  _nvm_resolve_alias() {
+    local alias="$1" target
+    while [ -f "$NVM_DIR/alias/$alias" ]; do
+      target=$(cat "$NVM_DIR/alias/$alias")
+      [[ "$target" == v* ]] && { echo "$target"; return; }
+      alias="$target"
+    done
+    # Check lts subdirectory
+    [ -f "$NVM_DIR/alias/lts/$alias" ] && cat "$NVM_DIR/alias/lts/$alias" && return
+    echo "$alias"
+  }
+  NODE_VER=$(_nvm_resolve_alias default)
+  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
+    export PATH="$NVM_DIR/versions/node/$NODE_VER/bin:$PATH"
+  else
+    # Fallback: use latest installed version
+    NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
+    [ -n "$NODE_LATEST" ] && export PATH="$NVM_DIR/versions/node/$NODE_LATEST/bin:$PATH"
+  fi
+  unset -f _nvm_resolve_alias
+fi
 if [ -s "$NVM_DIR/nvm.sh" ]; then
   nvm() {
     unset -f nvm node npm npx
