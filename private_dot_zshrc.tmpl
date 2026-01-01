@@ -95,24 +95,8 @@ alias e='code'
 # alias l='ls -lh'
 alias less='less -RX'
 alias ll='ls -A@cFl'
-alias replace="replace_in_files"
 
 # functions
-replace_in_files() {
-  if [ "$#" -lt 3 ]; then
-    echo "Usage: replace_in_files <search_string> <replace_string> <directory>"
-    return 1
-  fi
-
-  search_string="$1"
-  replace_string="$2"
-  directory="${3:-.}"  # Use the provided directory or current directory if not specified
-
-  find "$directory" -type f ! -path '*/.git/*' ! -path '*/.tmp/*' | while read file; do
-    gsed -i "s/$search_string/$replace_string/g" "$file" && echo "Modified: $file"
-  done
-}
-
 mupdate() {
   uv self update || return
   if whence -w backup >/dev/null 2>&1; then
