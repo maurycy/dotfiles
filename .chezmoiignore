@@ -1,0 +1,4 @@
+# Keep in repo but don't apply
+.bashrc
+.tcshrc
+LICENSE
