@@ -2,6 +2,10 @@
 setopt EXTENDED_HISTORY
 setopt INC_APPEND_HISTORY
 setopt SHARE_HISTORY
+setopt NO_BEEP
+
+# deduplicate PATH
+typeset -U path
 
 # history
 HISTFILE=~/.zsh_history
@@ -26,6 +30,7 @@ alias gc='git commit -m "up" && git push'
 alias add='git add'
 alias ci='git ci'
 alias push='git push'
+alias pull='git pull'
 alias st='git status'
 
 # nvm (lazy-loaded)
