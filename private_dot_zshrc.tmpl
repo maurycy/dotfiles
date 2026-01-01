@@ -22,6 +22,14 @@ alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub -
 alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+alias gc='git commit -m "up" && git push'
+alias gr='git reset $(git commit-tree HEAD^{tree} -m "init") && \
+git commit --amend --no-edit && \
+git push -f origin main'
+alias add='git add'
+alias ci='git ci'
+alias push='git push'
+alias st='git status'
 
 {{- if eq .chezmoi.os "darwin" }}
 
@@ -85,20 +93,12 @@ alias subl="'/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl'"
 alias code="'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'"
 alias code2="'/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code'"
 alias e='code'
-alias gc='git commit -m "up" && git push'
-alias gr='git reset $(git commit-tree HEAD^{tree} -m "init") && \
-git commit --amend --no-edit && \
-git push -f origin main'
 # alias l='ls -lh'
 alias less='less -RX'
 alias ll='ls -A@cFl'
 alias rt='heroku run rails c -a tnt-api-production'
 alias rs='heroku run rails c -a tnt-api-staging'
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
-alias add='git add'
-alias ci='git ci'
-alias push='git push'
-alias st='git status'
 alias replace="replace_in_files"
 
 # functions
