@@ -1,22 +1,74 @@
 {{- if eq .chezmoi.os "darwin" -}}
+# completion
 autoload -Uz compinit
 compinit
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
-
-eval "$(/opt/homebrew/bin/brew shellenv)"
-
-eval "$(rbenv init -)"
-
-export PYENV_ROOT="$HOME/.pyenv"
-[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init - zsh)"
-
-# eval `pip completion --zsh`
-# compctl -K _pip_completion pip3
-
 autoload -U select-word-style
 select-word-style bash
 
+# shell options
+setopt EXTENDED_HISTORY
+setopt APPEND_HISTORY
+setopt SHARE_HISTORY
+setopt HIST_IGNORE_DUPS
+setopt INC_APPEND_HISTORY
+setopt HIST_IGNORE_SPACE
+
+# history
+HISTFILE=~/.zsh_history
+HISTSIZE=10000000000000000
+SAVEHIST=10000000000000000
+
+# env
+export EDITOR=`which vim`
+export GOPATH=$HOME/go
+export GOBIN=$GOPATH/bin
+export NVM_DIR="$HOME/.nvm"
+export BUN_INSTALL="$HOME/.bun"
+export PYENV_ROOT="$HOME/.pyenv"
+export DISABLE_SPRING=1
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+
+# path
+eval "$(/opt/homebrew/bin/brew shellenv)"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+export PATH=$PATH:$GOBIN
+export PATH="$PATH:/Users/maurycy/.local/bin"
+export PATH="$PATH:/Users/maurycy/.foundry/bin"
+export PATH="$PATH:/Users/maurycy/.huff/bin"
+export PATH="$BUN_INSTALL/bin:$PATH"
+export PATH="$HOME/.claude/local:$PATH"
+
+# tool initializations
+eval "$(rbenv init -)"
+eval "$(pyenv init - zsh)"
+eval "$(zoxide init zsh)"
+source $HOME/.cargo/env
+
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"
+[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
+
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/Users/maurycy/.local/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/maurycy/.local/google-cloud-sdk/path.zsh.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/Users/maurycy/.local/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/maurycy/.local/google-cloud-sdk/completion.zsh.inc'; fi
+
+# bun completions
+[ -s "/Users/maurycy/.bun/_bun" ] && source "/Users/maurycy/.bun/_bun"
+
+eval "$(uv generate-shell-completion zsh)"
+
+_uv_run_mod() {
+    if [[ "$words[2]" == "run" && "$words[CURRENT]" != -* ]]; then
+        _arguments '*:filename:_files'
+    else
+        _uv "$@"
+    fi
+}
+
+# aliases
 alias be='bundle exec'
 alias subl="'/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl'"
 # alias c="'/Applications/Cursor.app/Contents/MacOS/Cursor'"
@@ -37,12 +89,17 @@ alias rg='rg -p'
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
 alias rt='heroku run rails c -a tnt-api-production'
 alias rs='heroku run rails c -a tnt-api-staging'
-
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
 alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+alias add='git add'
+alias ci='git ci'
+alias push='git push'
+alias st='git status'
+alias replace="replace_in_files"
 
+# functions
 replace_in_files() {
   if [ "$#" -lt 3 ]; then
     echo "Usage: replace_in_files <search_string> <replace_string> <directory>"
@@ -57,92 +114,6 @@ replace_in_files() {
     gsed -i "s/$search_string/$replace_string/g" "$file" && echo "Modified: $file"
   done
 }
-alias replace="replace_in_files"
-
-export EDITOR=`which vim`
-
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
-
-export GOPATH=$HOME/go
-export GOBIN=$GOPATH/bin
-export PATH=$PATH:$GOBIN
-
-source $HOME/.cargo/env
-
-eval "$(zoxide init zsh)"
-
-# Created by `pipx` on 2021-04-21 06:35:24
-export PATH="$PATH:/Users/maurycy/.local/bin"
-
-# The next line updates PATH for the Google Cloud SDK.
-if [ -f '/Users/maurycy/.local/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/maurycy/.local/google-cloud-sdk/path.zsh.inc'; fi
-
-# The next line enables shell command completion for gcloud.
-if [ -f '/Users/maurycy/.local/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/maurycy/.local/google-cloud-sdk/completion.zsh.inc'; fi
-
-export PATH="$PATH:/Users/maurycy/.foundry/bin"
-
-export PATH="$PATH:/Users/maurycy/.huff/bin"
-
-export DISABLE_SPRING=1
-
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-
-export PS1="%n@%m %d %# "
-export PS1='%D{%H:%M:%S.%N%p %Z} %n@%m %d %# '
-export PS1="%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %d %# " # should be 1-12
-
-# bun completions
-[ -s "/Users/maurycy/.bun/_bun" ] && source "/Users/maurycy/.bun/_bun"
-
-# bun
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
-
-export NVM_DIR="$HOME/.nvm"
-  [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
-  [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
-
-
-# Set the history file
-HISTFILE=~/.zsh_history
-
-# Set the maximum number of events stored in memory (use a very large value)
-HISTSIZE=10000000000000000
-
-# Set the maximum size of the history file (use a very large value)
-SAVEHIST=10000000000000000
-
-setopt EXTENDED_HISTORY
-
-# Append to the history file instead of overwriting it
-setopt APPEND_HISTORY
-
-# Share history between sessions
-setopt SHARE_HISTORY
-
-# Eliminate duplicate commands in history
-setopt HIST_IGNORE_DUPS
-
-# Record each line as soon as it is entered
-setopt INC_APPEND_HISTORY
-
-# Ignore spaces before commands
-setopt HIST_IGNORE_SPACE
-
-eval "$(uv generate-shell-completion zsh)"
-
-_uv_run_mod() {
-    if [[ "$words[2]" == "run" && "$words[CURRENT]" != -* ]]; then
-        _arguments '*:filename:_files'
-    else
-        _uv "$@"
-    fi
-}
-
-# export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 
 mupdate() {
   uv self update || return
@@ -155,103 +126,39 @@ mupdate() {
   sudo softwareupdate -ir
 }
 
-alias add='git add'
-alias ci='git ci'
-alias push='git push'
-alias st='git status'
+# prompt
+export PS1="%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %d %# "
 
-export PATH="$HOME/.claude/local:$PATH"
-
-# Local, untracked overrides
+# local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
-
-# Secrets (API keys, tokens) - not in git
 [[ -f ~/.secrets ]] && source ~/.secrets
 {{- else if eq .chezmoi.os "linux" }}
-# Environment
+# completion
+autoload -Uz vcs_info
+zstyle ':vcs_info:*' formats '(%b)'
+
+# shell options
+setopt INC_APPEND_HISTORY
+setopt SHARE_HISTORY
+
+# history
+HISTFILE=~/.zsh_history
+HISTSIZE=1000000
+SAVEHIST=1000000
+
+# env
 export EDITOR=vim
 
+# path
 export PATH="$HOME/.local/go/bin:$PATH"
 export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 export PATH="$PATH:$HOME/.local/bin:/snap/bin"
-
 # export GOPATH=$HOME/.local/go
 # export PATH="$HOME/bin:$PATH"
 # export CC="ccache gcc"
 # export PSQL_HISTORY=/dev/null
 
-# Shell options
-setopt INC_APPEND_HISTORY
-setopt SHARE_HISTORY
-
-# History
-HISTFILE=~/.zsh_history
-HISTSIZE=1000000
-SAVEHIST=1000000
-
-# Prompt
-autoload -Uz vcs_info
-zstyle ':vcs_info:*' formats '(%b)'
-
-precmd() {
-  vcs_info
-  PS1="%(?..[%?] )%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %~ ${vcs_info_msg_0_} %# "
-}
-
-# Key bindings
-bindkey -e
-bindkey "^A" beginning-of-line
-bindkey "^E" end-of-line
-
-# Aliases
-alias l='exa -l'
-alias ll='ls -AcFl'
-alias rg='rg -p'
-alias be='bundle exec'
-
-alias paw="pwgen -snyc 128"
-alias pw='pwgen -snyc 128 1 | pbcopy'
-
-alias yt='youtube-dlc -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
-
-alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
-alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
-alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
-
-# Clipboard (OSC 52 for remote, xclip/xsel for local)
-osc52pbcopy() {
-  local data esc
-  data=$(cat | base64 | tr -d '\n')
-  esc=$'\e]52;c;'$data$'\a'
-  if [[ -n "$TMUX" ]]; then
-    printf '\ePtmux;\e%s\e\\' "$esc" >/dev/tty
-  else
-    printf '%s' "$esc" >/dev/tty
-  fi
-}
-
-osc52pbpaste() {
-  printf '\e]52;c;?\a' >/dev/tty
-  IFS=$'\a' read -rd '' _osc_reply || true
-  printf '%s' "${_osc_reply#*52;c;}" | base64 --decode
-}
-
-_osc52_supported() {
-  [[ "$TERM_PROGRAM" =~ ^(iTerm\.app|WezTerm)$ ]] || [[ "$TERM" == *kitty* ]] \
-  || [[ "$TERM" == screen* ]] || [[ "$TERM" == tmux* ]]
-}
-
-if _osc52_supported; then
-  alias pbcopy='osc52pbcopy'
-  alias pbpaste='osc52pbpaste'
-elif command -v xclip >/dev/null 2>&1; then
-  alias pbcopy='xclip -selection clipboard'
-  alias pbpaste='xclip -o -selection clipboard'
-elif command -v xsel >/dev/null 2>&1; then
-  alias pbcopy='xsel --clipboard --input'
-  alias pbpaste='xsel --clipboard --output'
-fi
-
+# tool initializations
 # rbenv (lazy-loaded)
 if [ -d "$HOME/.rbenv" ]; then
   export PATH="$HOME/.rbenv/bin:$HOME/.rbenv/shims:$PATH"
@@ -308,9 +215,65 @@ fi
 # pyenv
 eval "$(pyenv virtualenv-init -)"
 
-# Local, untracked overrides
-[[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
+# key bindings
+bindkey -e
+bindkey "^A" beginning-of-line
+bindkey "^E" end-of-line
 
-# Secrets (not in git)
+# aliases
+alias l='exa -l'
+alias ll='ls -AcFl'
+alias rg='rg -p'
+alias be='bundle exec'
+alias paw="pwgen -snyc 128"
+alias pw='pwgen -snyc 128 1 | pbcopy'
+alias yt='youtube-dlc -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
+alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
+alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
+alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+
+# functions
+# Clipboard (OSC 52 for remote, xclip/xsel for local)
+osc52pbcopy() {
+  local data esc
+  data=$(cat | base64 | tr -d '\n')
+  esc=$'\e]52;c;'$data$'\a'
+  if [[ -n "$TMUX" ]]; then
+    printf '\ePtmux;\e%s\e\\' "$esc" >/dev/tty
+  else
+    printf '%s' "$esc" >/dev/tty
+  fi
+}
+
+osc52pbpaste() {
+  printf '\e]52;c;?\a' >/dev/tty
+  IFS=$'\a' read -rd '' _osc_reply || true
+  printf '%s' "${_osc_reply#*52;c;}" | base64 --decode
+}
+
+_osc52_supported() {
+  [[ "$TERM_PROGRAM" =~ ^(iTerm\.app|WezTerm)$ ]] || [[ "$TERM" == *kitty* ]] \
+  || [[ "$TERM" == screen* ]] || [[ "$TERM" == tmux* ]]
+}
+
+if _osc52_supported; then
+  alias pbcopy='osc52pbcopy'
+  alias pbpaste='osc52pbpaste'
+elif command -v xclip >/dev/null 2>&1; then
+  alias pbcopy='xclip -selection clipboard'
+  alias pbpaste='xclip -o -selection clipboard'
+elif command -v xsel >/dev/null 2>&1; then
+  alias pbcopy='xsel --clipboard --input'
+  alias pbpaste='xsel --clipboard --output'
+fi
+
+# prompt
+precmd() {
+  vcs_info
+  PS1="%(?..[%?] )%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %~ ${vcs_info_msg_0_} %# "
+}
+
+# local overrides
+[[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
 [[ -f ~/.secrets ]] && source ~/.secrets
 {{- end }}
