@@ -148,15 +148,16 @@ SAVEHIST=1000000
 
 # env
 export EDITOR=vim
+export NVM_DIR="$HOME/.nvm"
+# export GOPATH=$HOME/.local/go
+# export CC="ccache gcc"
+# export PSQL_HISTORY=/dev/null
 
 # path
 export PATH="$HOME/.local/go/bin:$PATH"
 export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 export PATH="$PATH:$HOME/.local/bin:/snap/bin"
-# export GOPATH=$HOME/.local/go
 # export PATH="$HOME/bin:$PATH"
-# export CC="ccache gcc"
-# export PSQL_HISTORY=/dev/null
 
 # tool initializations
 # rbenv (lazy-loaded)
@@ -176,7 +177,6 @@ if [ -d "$HOME/.rbenv" ]; then
 fi
 
 # nvm (lazy-loaded)
-export NVM_DIR="$HOME/.nvm"
 # Add default node to PATH for global npm binaries (codex, etc.)
 if [ -d "$NVM_DIR/versions/node" ]; then
   _nvm_resolve_alias() {
