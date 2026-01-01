@@ -5,7 +5,6 @@ LICENSE
 
 # macOS-only ignores (Linux files to skip on macOS)
 {{ if eq .chezmoi.os "darwin" }}
-.tmux.conf
 .vim/python.vim
 {{ end }}
 
