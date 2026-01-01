@@ -28,6 +28,44 @@ alias ci='git ci'
 alias push='git push'
 alias st='git status'
 
+# nvm (lazy-loaded)
+if [ -d "$NVM_DIR/versions/node" ]; then
+  _nvm_resolve_alias() {
+    local alias="$1" target
+    while [ -f "$NVM_DIR/alias/$alias" ]; do
+      target=$(cat "$NVM_DIR/alias/$alias")
+      [[ "$target" == v* ]] && { echo "$target"; return; }
+      alias="$target"
+    done
+    [ -f "$NVM_DIR/alias/lts/$alias" ] && cat "$NVM_DIR/alias/lts/$alias" && return
+    echo "$alias"
+  }
+  NODE_VER=$(_nvm_resolve_alias default)
+  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
+    export PATH="$NVM_DIR/versions/node/$NODE_VER/bin:$PATH"
+  else
+    NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
+    [ -n "$NODE_LATEST" ] && export PATH="$NVM_DIR/versions/node/$NODE_LATEST/bin:$PATH"
+  fi
+  unset -f _nvm_resolve_alias
+fi
+if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+  _nvm_load() {
+    unset -f nvm node npm npx _nvm_load
+    if [ -s "$NVM_DIR/nvm.sh" ]; then
+      \. "$NVM_DIR/nvm.sh"
+      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    elif [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+      \. "/opt/homebrew/opt/nvm/nvm.sh"
+    fi
+    [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
+  }
+  nvm() { _nvm_load; nvm "$@"; }
+  node() { _nvm_load; node "$@"; }
+  npm() { _nvm_load; npm "$@"; }
+  npx() { _nvm_load; npx "$@"; }
+fi
+
 # prompt
 autoload -Uz vcs_info
 zstyle ':vcs_info:*' formats '(%b)'
@@ -62,50 +100,9 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 export PATH="$HOME/.claude/local:$PATH"
 
 # tool initializations
-# nvm (lazy-loaded)
-# Add default node to PATH for global npm binaries (codex, etc.)
-if [ -d "$NVM_DIR/versions/node" ]; then
-  _nvm_resolve_alias() {
-    local alias="$1" target
-    while [ -f "$NVM_DIR/alias/$alias" ]; do
-      target=$(cat "$NVM_DIR/alias/$alias")
-      [[ "$target" == v* ]] && { echo "$target"; return; }
-      alias="$target"
-    done
-    # Check lts subdirectory
-    [ -f "$NVM_DIR/alias/lts/$alias" ] && cat "$NVM_DIR/alias/lts/$alias" && return
-    echo "$alias"
-  }
-  NODE_VER=$(_nvm_resolve_alias default)
-  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
-    export PATH="$NVM_DIR/versions/node/$NODE_VER/bin:$PATH"
-  else
-    # Fallback: use latest installed version
-    NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
-    [ -n "$NODE_LATEST" ] && export PATH="$NVM_DIR/versions/node/$NODE_LATEST/bin:$PATH"
-  fi
-  unset -f _nvm_resolve_alias
-fi
-if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-  _nvm_load() {
-    unset -f nvm node npm npx _nvm_load
-    if [ -s "$NVM_DIR/nvm.sh" ]; then
-      \. "$NVM_DIR/nvm.sh"
-      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-    elif [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-      \. "/opt/homebrew/opt/nvm/nvm.sh"
-    fi
-    [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
-  }
-  nvm() { _nvm_load; nvm "$@"; }
-  node() { _nvm_load; node "$@"; }
-  npm() { _nvm_load; npm "$@"; }
-  npx() { _nvm_load; npx "$@"; }
-fi
-
-eval "$(pyenv init - zsh)"
-eval "$(zoxide init zsh)"
-source $HOME/.cargo/env
+command -v pyenv >/dev/null && eval "$(pyenv init - zsh)"
+command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
+[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f "$HOME/.local/google-cloud-sdk/path.zsh.inc" ]; then . "$HOME/.local/google-cloud-sdk/path.zsh.inc"; fi
@@ -118,13 +115,14 @@ if [ -f "$HOME/.local/google-cloud-sdk/completion.zsh.inc" ]; then . "$HOME/.loc
 
 eval "$(uv generate-shell-completion zsh)"
 
-_uv_run_mod() {
-    if [[ "$words[2]" == "run" && "$words[CURRENT]" != -* ]]; then
-        _arguments '*:filename:_files'
-    else
-        _uv "$@"
-    fi
-}
+# TODO: wire this when uv fixes file completion (github.com/astral-sh/uv/issues/8432)
+# _uv_run_mod() {
+#     if [[ "$words[2]" == "run" && "$words[CURRENT]" != -* ]]; then
+#         _arguments '*:filename:_files'
+#     else
+#         _uv "$@"
+#     fi
+# }
 
 # aliases
 # alias c="'/Applications/Cursor.app/Contents/MacOS/Cursor'"
@@ -161,44 +159,7 @@ export PATH="$PATH:$HOME/.local/bin:/snap/bin"
 # export PATH="$HOME/bin:$PATH"
 
 # tool initializations
-# nvm (lazy-loaded)
-# Add default node to PATH for global npm binaries (codex, etc.)
-if [ -d "$NVM_DIR/versions/node" ]; then
-  _nvm_resolve_alias() {
-    local alias="$1" target
-    while [ -f "$NVM_DIR/alias/$alias" ]; do
-      target=$(cat "$NVM_DIR/alias/$alias")
-      [[ "$target" == v* ]] && { echo "$target"; return; }
-      alias="$target"
-    done
-    # Check lts subdirectory
-    [ -f "$NVM_DIR/alias/lts/$alias" ] && cat "$NVM_DIR/alias/lts/$alias" && return
-    echo "$alias"
-  }
-  NODE_VER=$(_nvm_resolve_alias default)
-  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
-    export PATH="$NVM_DIR/versions/node/$NODE_VER/bin:$PATH"
-  else
-    # Fallback: use latest installed version
-    NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
-    [ -n "$NODE_LATEST" ] && export PATH="$NVM_DIR/versions/node/$NODE_LATEST/bin:$PATH"
-  fi
-  unset -f _nvm_resolve_alias
-fi
-if [ -s "$NVM_DIR/nvm.sh" ]; then
-  nvm() {
-    unset -f nvm node npm npx
-    \. "$NVM_DIR/nvm.sh"
-    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-    nvm "$@"
-  }
-  node() { unset -f nvm node npm npx; \. "$NVM_DIR/nvm.sh"; node "$@"; }
-  npm() { unset -f nvm node npm npx; \. "$NVM_DIR/nvm.sh"; npm "$@"; }
-  npx() { unset -f nvm node npm npx; \. "$NVM_DIR/nvm.sh"; npx "$@"; }
-fi
-
-# pyenv
-eval "$(pyenv virtualenv-init -)"
+command -v pyenv >/dev/null && eval "$(pyenv virtualenv-init -)"
 
 # key bindings
 bindkey -e
