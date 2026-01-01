@@ -70,6 +70,7 @@
 	# enabled = true
 	# autoupdate = true
 
+# https://news.ycombinator.com/item?id=43169861
 [log]
 	date = iso
 
@@ -119,11 +120,13 @@
 	ci = commit
 	co = checkout
 	st = status -sb
+	# https://news.ycombinator.com/item?id=39405765
 	lg = log --graph --abbrev-commit --decorate --date=relative --format=format:'%C(bold blue)%h%C(reset) - %C(bold green)(%ar)%C(reset) %C(white)%s%C(reset) %C(dim white)- %an%C(reset)%C(bold yellow)%d%C(reset)'
 	unstage = reset HEAD --
 	last = log -1 HEAD
 	amend = commit --amend --no-edit
 	diffc = diff --cached
+	# https://news.ycombinator.com/item?id=43171509
 	out = "log @{u}.."
 	up = commit -m 'up'
 	cleanup = "!f() { git gc && git prune && git remote prune origin; }; f"
