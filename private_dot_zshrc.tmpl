@@ -64,14 +64,67 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 export PATH="$HOME/.claude/local:$PATH"
 
 # tool initializations
-eval "$(rbenv init -)"
+# rbenv (lazy-loaded)
+if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
+  export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
+  export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
+  _rbenv_load() {
+    unset -f ruby gem bundle rbenv irb rake rails
+    eval "$(rbenv init - zsh)"
+  }
+  ruby() { _rbenv_load; ruby "$@"; }
+  gem() { _rbenv_load; gem "$@"; }
+  bundle() { _rbenv_load; bundle "$@"; }
+  rbenv() { _rbenv_load; rbenv "$@"; }
+  irb() { _rbenv_load; irb "$@"; }
+  rake() { _rbenv_load; rake "$@"; }
+  rails() { _rbenv_load; rails "$@"; }
+fi
+
+# nvm (lazy-loaded)
+# Add default node to PATH for global npm binaries (codex, etc.)
+if [ -d "$NVM_DIR/versions/node" ]; then
+  _nvm_resolve_alias() {
+    local alias="$1" target
+    while [ -f "$NVM_DIR/alias/$alias" ]; do
+      target=$(cat "$NVM_DIR/alias/$alias")
+      [[ "$target" == v* ]] && { echo "$target"; return; }
+      alias="$target"
+    done
+    # Check lts subdirectory
+    [ -f "$NVM_DIR/alias/lts/$alias" ] && cat "$NVM_DIR/alias/lts/$alias" && return
+    echo "$alias"
+  }
+  NODE_VER=$(_nvm_resolve_alias default)
+  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
+    export PATH="$NVM_DIR/versions/node/$NODE_VER/bin:$PATH"
+  else
+    # Fallback: use latest installed version
+    NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
+    [ -n "$NODE_LATEST" ] && export PATH="$NVM_DIR/versions/node/$NODE_LATEST/bin:$PATH"
+  fi
+  unset -f _nvm_resolve_alias
+fi
+if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+  _nvm_load() {
+    unset -f nvm node npm npx _nvm_load
+    if [ -s "$NVM_DIR/nvm.sh" ]; then
+      \. "$NVM_DIR/nvm.sh"
+      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    elif [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+      \. "/opt/homebrew/opt/nvm/nvm.sh"
+    fi
+    [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
+  }
+  nvm() { _nvm_load; nvm "$@"; }
+  node() { _nvm_load; node "$@"; }
+  npm() { _nvm_load; npm "$@"; }
+  npx() { _nvm_load; npx "$@"; }
+fi
+
 eval "$(pyenv init - zsh)"
 eval "$(zoxide init zsh)"
 source $HOME/.cargo/env
-
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"
-[ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f "$HOME/.local/google-cloud-sdk/path.zsh.inc" ]; then . "$HOME/.local/google-cloud-sdk/path.zsh.inc"; fi
