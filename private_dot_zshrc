@@ -16,8 +16,8 @@ setopt SHARE_HISTORY
 
 # History
 HISTFILE=~/.zsh_history
-HISTSIZE=1000000
-SAVEHIST=1000000
+HISTSIZE=
+SAVEHIST=
 
 # Prompt
 autoload -Uz vcs_info
