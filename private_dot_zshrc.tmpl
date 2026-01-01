@@ -1,4 +1,29 @@
-{{- if eq .chezmoi.os "darwin" -}}
+# shell options
+setopt INC_APPEND_HISTORY
+setopt SHARE_HISTORY
+
+# history
+HISTFILE=~/.zsh_history
+HISTSIZE=10000000000000000
+SAVEHIST=10000000000000000
+
+# env
+export EDITOR=vim
+export NVM_DIR="$HOME/.nvm"
+
+# aliases
+alias l='exa -l'
+alias rg='rg -p'
+alias be='bundle exec'
+alias paw="pwgen -snyc 128"
+alias pw='pwgen -snyc 128 1 | pbcopy'
+alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
+alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
+alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
+alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+
+{{- if eq .chezmoi.os "darwin" }}
+
 # completion
 autoload -Uz compinit
 compinit
@@ -9,21 +34,12 @@ select-word-style bash
 # shell options
 setopt EXTENDED_HISTORY
 setopt APPEND_HISTORY
-setopt SHARE_HISTORY
 setopt HIST_IGNORE_DUPS
-setopt INC_APPEND_HISTORY
 setopt HIST_IGNORE_SPACE
 
-# history
-HISTFILE=~/.zsh_history
-HISTSIZE=10000000000000000
-SAVEHIST=10000000000000000
-
 # env
-export EDITOR=vim
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
-export NVM_DIR="$HOME/.nvm"
 export BUN_INSTALL="$HOME/.bun"
 export PYENV_ROOT="$HOME/.pyenv"
 export DISABLE_SPRING=1
@@ -69,7 +85,6 @@ _uv_run_mod() {
 }
 
 # aliases
-alias be='bundle exec'
 alias subl="'/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl'"
 # alias c="'/Applications/Cursor.app/Contents/MacOS/Cursor'"
 alias code="'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'"
@@ -80,19 +95,11 @@ alias gr='git reset $(git commit-tree HEAD^{tree} -m "init") && \
 git commit --amend --no-edit && \
 git push -f origin main'
 # alias l='ls -lh'
-alias l='exa -l'
 alias less='less -RX'
 alias ll='ls -A@cFl'
-alias paw="pwgen -snyc 128"
-alias pw='pwgen -snyc 128 1 | pbcopy'
-alias rg='rg -p'
-alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
 alias rt='heroku run rails c -a tnt-api-production'
 alias rs='heroku run rails c -a tnt-api-staging'
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
-alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
-alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
-alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
 alias add='git add'
 alias ci='git ci'
 alias push='git push'
@@ -129,26 +136,13 @@ mupdate() {
 # prompt
 export PS1="%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %d %# "
 
-# local overrides
-[[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
-[[ -f ~/.secrets ]] && source ~/.secrets
 {{- else if eq .chezmoi.os "linux" }}
+
 # completion
 autoload -Uz vcs_info
 zstyle ':vcs_info:*' formats '(%b)'
 
-# shell options
-setopt INC_APPEND_HISTORY
-setopt SHARE_HISTORY
-
-# history
-HISTFILE=~/.zsh_history
-HISTSIZE=10000000000000000
-SAVEHIST=10000000000000000
-
 # env
-export EDITOR=vim
-export NVM_DIR="$HOME/.nvm"
 # export GOPATH=$HOME/.local/go
 # export CC="ccache gcc"
 # export PSQL_HISTORY=/dev/null
@@ -221,16 +215,7 @@ bindkey "^A" beginning-of-line
 bindkey "^E" end-of-line
 
 # aliases
-alias l='exa -l'
 alias ll='ls -AcFl'
-alias rg='rg -p'
-alias be='bundle exec'
-alias paw="pwgen -snyc 128"
-alias pw='pwgen -snyc 128 1 | pbcopy'
-alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
-alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
-alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
-alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
 
 # functions
 # Clipboard (OSC 52 for remote, xclip/xsel for local)
@@ -273,7 +258,8 @@ precmd() {
   PS1="%(?..[%?] )%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %~ ${vcs_info_msg_0_} %# "
 }
 
+{{- end }}
+
 # local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
 [[ -f ~/.secrets ]] && source ~/.secrets
-{{- end }}
