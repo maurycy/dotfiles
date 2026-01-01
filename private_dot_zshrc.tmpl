@@ -26,7 +26,6 @@ alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub -
 alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
-alias gc='git commit -m "up" && git push'
 alias add='git add'
 alias ci='git ci'
 alias push='git push'
@@ -71,6 +70,17 @@ if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
   npx() { _nvm_load; npx "$@"; }
 fi
 
+# completion (cached for speed)
+autoload -Uz compinit
+if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
+  compinit
+else
+  compinit -C
+fi
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+autoload -U select-word-style
+select-word-style bash
+
 # prompt
 autoload -Uz vcs_info
 zstyle ':vcs_info:*' formats '(%b)'
@@ -80,13 +90,6 @@ precmd() {
 }
 
 {{- if eq .chezmoi.os "darwin" }}
-
-# completion
-autoload -Uz compinit
-compinit
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
-autoload -U select-word-style
-select-word-style bash
 
 # env
 export GOPATH=$HOME/go
