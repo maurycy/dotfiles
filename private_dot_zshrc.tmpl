@@ -133,18 +133,6 @@ alias e='code'
 alias less='less -RX'
 alias ll='ls -A@cFl'
 
-# functions
-mupdate() {
-  uv self update || return
-  if whence -w backup >/dev/null 2>&1; then
-    backup || return
-  fi
-  gcloud components update || return
-  brew update && brew upgrade && brew cleanup --scrub --prune=all || return
-  rustup update || return
-  sudo softwareupdate -ir
-}
-
 {{- else if eq .chezmoi.os "linux" }}
 
 # env
@@ -204,19 +192,41 @@ elif command -v xsel >/dev/null 2>&1; then
   alias pbpaste='xsel --clipboard --output'
 fi
 
-mupdate() {
-  sudo apt update && sudo apt -yu dist-upgrade || return
-  sudo apt autoclean && sudo apt autoremove -y || return
-  sudo apt-get remove -y --purge $(deborphan) 2>/dev/null
-  sudo aptitude purge '~c' 2>/dev/null
-  gcloud components update || return
-  rustup upgrade && rustup update || return
-  pyenv update || return
-  uv self update || return
-  rbenv update
+{{- end }}
+
+# functions
+_is_brew_pkg() {
+  command -v brew >/dev/null && brew list "$1" &>/dev/null
 }
 
-{{- end }}
+mupdate() {
+  command -v uv >/dev/null && { uv self update || return; }
+
+  if whence -w backup >/dev/null 2>&1; then
+    backup || return
+  fi
+
+  command -v gcloud >/dev/null && { gcloud components update || return; }
+
+  if command -v brew >/dev/null; then
+    brew update && brew upgrade && brew cleanup --scrub --prune=all || return
+  fi
+
+  if command -v apt >/dev/null; then
+    sudo apt update && sudo apt -yu dist-upgrade || return
+    sudo apt autoclean && sudo apt autoremove -y || return
+    sudo apt-get remove -y --purge $(deborphan) 2>/dev/null
+    sudo aptitude purge '~c' 2>/dev/null
+  fi
+
+  command -v rustup >/dev/null && { rustup update || return; }
+
+  command -v pyenv >/dev/null && ! _is_brew_pkg pyenv && { pyenv update || true; }
+  command -v rbenv >/dev/null && ! _is_brew_pkg rbenv && { rbenv update || true; }
+  command -v bun >/dev/null && ! _is_brew_pkg bun && { bun upgrade || true; }
+
+  command -v softwareupdate >/dev/null && sudo softwareupdate -ir
+}
 
 # rbenv (lazy-loaded)
 if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
