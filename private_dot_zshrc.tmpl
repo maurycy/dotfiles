@@ -28,6 +28,14 @@ alias ci='git ci'
 alias push='git push'
 alias st='git status'
 
+# prompt
+autoload -Uz vcs_info
+zstyle ':vcs_info:*' formats '(%b)'
+precmd() {
+  vcs_info
+  PS1="%(?..[%?] )%D{%I:%M:%S.%N%p %Z} %n@%B%m%b %d ${vcs_info_msg_0_} %# "
+}
+
 {{- if eq .chezmoi.os "darwin" }}
 
 # completion
@@ -103,14 +111,7 @@ mupdate() {
   sudo softwareupdate -ir
 }
 
-# prompt
-export PS1="%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %d %# "
-
 {{- else if eq .chezmoi.os "linux" }}
-
-# completion
-autoload -Uz vcs_info
-zstyle ':vcs_info:*' formats '(%b)'
 
 # env
 # export GOPATH=$HOME/.local/go
@@ -232,12 +233,6 @@ mupdate() {
   pyenv update || return
   uv self update || return
   rbenv update
-}
-
-# prompt
-precmd() {
-  vcs_info
-  PS1="%(?..[%?] )%D{%H:%M:%S.%N%p %Z} %n@%B%m%b %~ ${vcs_info_msg_0_} %# "
 }
 
 {{- end }}
