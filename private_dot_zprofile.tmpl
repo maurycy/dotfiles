@@ -1,0 +1,14 @@
+{{- if eq .chezmoi.os "darwin" -}}
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
+# Created by `pipx` on 2021-04-21 06:35:24
+export PATH="$PATH:/Users/maurycy/.local/bin"
+
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init --path)"
+{{- else if eq .chezmoi.os "linux" -}}
+export PYENV_ROOT="$HOME/.pyenv"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init - zsh)"
+{{- end }}

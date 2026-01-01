@@ -2,3 +2,13 @@
 .bashrc
 .tcshrc
 LICENSE
+
+# macOS-only ignores (Linux files to skip on macOS)
+{{ if eq .chezmoi.os "darwin" }}
+.tmux.conf
+.vim/python.vim
+{{ end }}
+
+# Linux-only ignores (macOS files to skip on Linux)
+{{ if eq .chezmoi.os "linux" }}
+{{ end }}
