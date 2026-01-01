@@ -17,16 +17,12 @@ alias l='exa -l'
 alias rg='rg -p'
 alias be='bundle exec'
 alias paw="pwgen -snyc 128"
-alias pw='pwgen -snyc 128 1 | pbcopy'
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
 alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
 alias gc='git commit -m "up" && git push'
-alias gr='git reset $(git commit-tree HEAD^{tree} -m "init") && \
-git commit --amend --no-edit && \
-git push -f origin main'
 alias add='git add'
 alias ci='git ci'
 alias push='git push'
