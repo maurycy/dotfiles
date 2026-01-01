@@ -247,6 +247,18 @@ elif command -v xsel >/dev/null 2>&1; then
   alias pbpaste='xsel --clipboard --output'
 fi
 
+mupdate() {
+  sudo apt update && sudo apt -yu dist-upgrade || return
+  sudo apt autoclean && sudo apt autoremove -y || return
+  sudo apt-get remove -y --purge $(deborphan) 2>/dev/null
+  sudo aptitude purge '~c' 2>/dev/null
+  gcloud components update || return
+  rustup upgrade && rustup update || return
+  pyenv update || return
+  uv self update || return
+  rbenv update
+}
+
 # prompt
 precmd() {
   vcs_info
