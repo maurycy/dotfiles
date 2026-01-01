@@ -20,7 +20,7 @@ HISTSIZE=10000000000000000
 SAVEHIST=10000000000000000
 
 # env
-export EDITOR=`which vim`
+export EDITOR=vim
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export NVM_DIR="$HOME/.nvm"
@@ -143,8 +143,8 @@ setopt SHARE_HISTORY
 
 # history
 HISTFILE=~/.zsh_history
-HISTSIZE=1000000
-SAVEHIST=1000000
+HISTSIZE=10000000000000000
+SAVEHIST=10000000000000000
 
 # env
 export EDITOR=vim
@@ -227,7 +227,7 @@ alias rg='rg -p'
 alias be='bundle exec'
 alias paw="pwgen -snyc 128"
 alias pw='pwgen -snyc 128 1 | pbcopy'
-alias yt='youtube-dlc -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
+alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
 alias f-rsync='/usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
