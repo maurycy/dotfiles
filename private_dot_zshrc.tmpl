@@ -64,23 +64,6 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 export PATH="$HOME/.claude/local:$PATH"
 
 # tool initializations
-# rbenv (lazy-loaded)
-if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
-  export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
-  export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
-  _rbenv_load() {
-    unset -f ruby gem bundle rbenv irb rake rails
-    eval "$(rbenv init - zsh)"
-  }
-  ruby() { _rbenv_load; ruby "$@"; }
-  gem() { _rbenv_load; gem "$@"; }
-  bundle() { _rbenv_load; bundle "$@"; }
-  rbenv() { _rbenv_load; rbenv "$@"; }
-  irb() { _rbenv_load; irb "$@"; }
-  rake() { _rbenv_load; rake "$@"; }
-  rails() { _rbenv_load; rails "$@"; }
-fi
-
 # nvm (lazy-loaded)
 # Add default node to PATH for global npm binaries (codex, etc.)
 if [ -d "$NVM_DIR/versions/node" ]; then
@@ -180,22 +163,6 @@ export PATH="$PATH:$HOME/.local/bin:/snap/bin"
 # export PATH="$HOME/bin:$PATH"
 
 # tool initializations
-# rbenv (lazy-loaded)
-if [ -d "$HOME/.rbenv" ]; then
-  export PATH="$HOME/.rbenv/bin:$HOME/.rbenv/shims:$PATH"
-  _rbenv_load() {
-    unset -f ruby gem bundle rbenv irb rake rails
-    eval "$(~/.rbenv/bin/rbenv init - zsh)"
-  }
-  ruby() { _rbenv_load; ruby "$@"; }
-  gem() { _rbenv_load; gem "$@"; }
-  bundle() { _rbenv_load; bundle "$@"; }
-  rbenv() { _rbenv_load; rbenv "$@"; }
-  irb() { _rbenv_load; irb "$@"; }
-  rake() { _rbenv_load; rake "$@"; }
-  rails() { _rbenv_load; rails "$@"; }
-fi
-
 # nvm (lazy-loaded)
 # Add default node to PATH for global npm binaries (codex, etc.)
 if [ -d "$NVM_DIR/versions/node" ]; then
@@ -291,6 +258,23 @@ mupdate() {
 }
 
 {{- end }}
+
+# rbenv (lazy-loaded)
+if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
+  export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
+  export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
+  _rbenv_load() {
+    unset -f ruby gem bundle rbenv irb rake rails
+    eval "$(rbenv init - zsh)"
+  }
+  ruby() { _rbenv_load; ruby "$@"; }
+  gem() { _rbenv_load; gem "$@"; }
+  bundle() { _rbenv_load; bundle "$@"; }
+  rbenv() { _rbenv_load; rbenv "$@"; }
+  irb() { _rbenv_load; irb "$@"; }
+  rake() { _rbenv_load; rake "$@"; }
+  rails() { _rbenv_load; rails "$@"; }
+fi
 
 # local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
