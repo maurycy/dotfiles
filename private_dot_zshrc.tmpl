@@ -19,6 +19,7 @@ alias be='bundle exec'
 alias paw="pwgen -snyc 128"
 alias pw='pwgen -snyc 128 1 | pbcopy'
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
+# /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
 alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
@@ -96,7 +97,6 @@ alias less='less -RX'
 alias ll='ls -A@cFl'
 alias rt='heroku run rails c -a tnt-api-production'
 alias rs='heroku run rails c -a tnt-api-staging'
-# /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
 alias replace="replace_in_files"
 
 # functions
