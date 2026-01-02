@@ -33,6 +33,7 @@ alias push='git push'
 alias pull='git pull'
 alias st='git status'
 alias cached='git diff --cached'
+alias d='git diff'
 
 # nvm (lazy-loaded)
 if [ -d "$NVM_DIR/versions/node" ]; then
@@ -235,7 +236,7 @@ mupdate() {
   if command -v apt >/dev/null; then
     sudo apt update && sudo apt -yu dist-upgrade || return
     sudo apt autoclean && sudo apt autoremove -y || return
-    sudo apt-get remove -y --purge $(deborphan) 2>/dev/null
+    deborphan 2>/dev/null | xargs -r sudo apt-get remove -y --purge
     sudo aptitude purge '~c' 2>/dev/null
   fi
 
