@@ -238,6 +238,20 @@ _diff() {
 }
 compdef _diff diff
 
+_tab_or_diff_cycle() {
+  if [[ "$BUFFER" == "diff" ]]; then
+    BUFFER="git diff"
+    CURSOR=$#BUFFER
+  elif [[ "$BUFFER" == "git diff" ]]; then
+    BUFFER="diff"
+    CURSOR=$#BUFFER
+  else
+    zle expand-or-complete
+  fi
+}
+zle -N _tab_or_diff_cycle
+bindkey '^I' _tab_or_diff_cycle
+
 worktree() {
   case "$1" in
     ls) shift; git worktree list "$@" ;;
