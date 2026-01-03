@@ -10,5 +10,5 @@ eval "$(pyenv init --path)"
 {{- else if eq .chezmoi.os "linux" -}}
 export PYENV_ROOT="$HOME/.pyenv"
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init - zsh)"
+command -v pyenv >/dev/null && [[ -w "$PYENV_ROOT/shims" ]] && eval "$(pyenv init - zsh)"
 {{- end }}
