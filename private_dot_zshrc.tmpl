@@ -231,6 +231,13 @@ diff() {
   fi
 }
 
+_diff() {
+  _arguments \
+    '--cached[show git staged changes]' \
+    '*:file:_files'
+}
+compdef _diff diff
+
 worktree() {
   case "$1" in
     ls) shift; git worktree list "$@" ;;
