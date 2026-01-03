@@ -34,8 +34,6 @@ alias pull='git pull'
 alias st='git status'
 alias cached='git diff --cached'
 alias d='git diff'
-alias worktree='git worktree'
-
 # nvm (lazy-loaded)
 if [ -d "$NVM_DIR/versions/node" ]; then
   _nvm_resolve_alias() {
@@ -217,6 +215,14 @@ fi
 {{- end }}
 
 # functions
+worktree() {
+  case "$1" in
+    ls) shift; git worktree list "$@" ;;
+    rm) shift; git worktree remove "$@" ;;
+    *)  git worktree "$@" ;;
+  esac
+}
+
 _is_brew_pkg() {
   command -v brew >/dev/null && brew list "$1" &>/dev/null
 }
