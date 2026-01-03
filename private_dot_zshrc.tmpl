@@ -32,7 +32,6 @@ alias ci='git ci'
 alias push='git push'
 alias pull='git pull'
 alias st='git status'
-alias cached='git diff --cached'
 alias d='git diff'
 # nvm (lazy-loaded)
 if [ -d "$NVM_DIR/versions/node" ]; then
@@ -215,6 +214,23 @@ fi
 {{- end }}
 
 # functions
+diff() {
+  local args=() use_git=0
+  for arg in "$@"; do
+    if [[ "$arg" == --cach* ]]; then
+      args+=(--cached)
+      use_git=1
+    else
+      args+=("$arg")
+    fi
+  done
+  if (( use_git )); then
+    git diff "${args[@]}"
+  else
+    command diff "$@"
+  fi
+}
+
 worktree() {
   case "$1" in
     ls) shift; git worktree list "$@" ;;
