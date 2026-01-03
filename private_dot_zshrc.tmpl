@@ -170,11 +170,6 @@ export PATH="$PATH:$HOME/.local/bin:/snap/bin"
 # tool initializations
 command -v pyenv >/dev/null && eval "$(pyenv virtualenv-init -)"
 
-# key bindings
-bindkey -e
-bindkey "^A" beginning-of-line
-bindkey "^E" end-of-line
-
 # aliases
 alias ll='ls -AcFl'
 
@@ -310,6 +305,9 @@ if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
   rake() { _rbenv_load; rake "$@"; }
   rails() { _rbenv_load; rails "$@"; }
 fi
+
+# emacs mode (EDITOR=vim defaults to vi mode)
+bindkey -e
 
 # local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"
