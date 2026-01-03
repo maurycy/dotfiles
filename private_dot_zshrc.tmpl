@@ -90,11 +90,7 @@ autoload -Uz vcs_info
 zstyle ':vcs_info:*' formats '(%b)'
 precmd() {
   vcs_info
-  if command -v CoreLocationCLI >/dev/null && [[ -z "$_geo" || $(( EPOCHSECONDS - ${_geo_t:-0} )) -gt 300 ]]; then
-    _geo=$(CoreLocationCLI -format "%latitude;%longitude" 2>/dev/null)
-    _geo_t=$EPOCHSECONDS
-  fi
-  PS1="%(?..[%?] )${_geo:+$_geo }%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%B%m%b %d${vcs_info_msg_0_:+ $vcs_info_msg_0_} %# "
+  PS1="%(?..[%?] )%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%B%m%b %d ${vcs_info_msg_0_} %# "
 }
 
 {{- if eq .chezmoi.os "darwin" }}
