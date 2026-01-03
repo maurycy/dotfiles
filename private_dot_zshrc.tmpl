@@ -292,8 +292,6 @@ mupdate() {
   command -v pyenv >/dev/null && ! _is_brew_pkg pyenv && { pyenv update || true; }
   command -v rbenv >/dev/null && ! _is_brew_pkg rbenv && { rbenv update || true; }
   command -v bun >/dev/null && ! _is_brew_pkg bun && { bun upgrade || true; }
-
-  command -v softwareupdate >/dev/null && sudo softwareupdate -ir
 }
 
 # rbenv (lazy-loaded)
