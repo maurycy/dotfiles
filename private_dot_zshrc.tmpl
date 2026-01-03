@@ -27,12 +27,14 @@ alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub -
 alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
 alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
 alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
-alias add='git add'
-alias ci='git ci'
-alias push='git push'
-alias pull='git pull'
-alias st='git st'
-alias d='git diff'
+if command -v git >/dev/null; then
+  alias add='git add'
+  alias ci='git ci'
+  alias push='git push'
+  alias pull='git pull'
+  alias st='git st'
+  alias d='git diff'
+fi
 # nvm (lazy-loaded)
 if [ -d "$NVM_DIR/versions/node" ]; then
   _nvm_resolve_alias() {
