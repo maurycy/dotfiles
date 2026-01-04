@@ -29,3 +29,8 @@ You might want to sync with me from time to time:
 ```
 chezmoi update
 ```
+
+# Caveats
+
+* This is [zsh](https://en.wikipedia.org/wiki/Z_shell) first, but without [oh my zsh](https://ohmyz.sh/), which I find too heavy and too slow.
+* Optimized for speed. I start new terminal windows probably thousands times a day, so every millisecond counts.
