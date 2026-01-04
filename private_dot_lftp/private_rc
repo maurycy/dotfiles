@@ -1,1 +1,4 @@
 set ssl:verify-certificate no
+set cmd:save-cwd-history no
+set cmd:save-rl-history no
+set log:enabled/xfer no
