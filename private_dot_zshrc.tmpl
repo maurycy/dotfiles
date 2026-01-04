@@ -23,10 +23,14 @@ alias rg='rg -p'
 alias be='bundle exec'
 alias paw="pwgen -snyc 128"
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
+
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
-alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
-alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
-alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+if command -v rsync >/dev/null; then
+  alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
+  alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
+  alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+fi
+
 if command -v git >/dev/null; then
   alias add='git add'
   alias ci='git ci'
@@ -36,6 +40,7 @@ if command -v git >/dev/null; then
   alias st='git st'
   alias d='git diff'
 fi
+
 # nvm (lazy-loaded)
 if [ -d "$NVM_DIR/versions/node" ]; then
   _nvm_resolve_alias() {
