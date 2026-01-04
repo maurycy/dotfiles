@@ -1,4 +1,9 @@
 set ssl:verify-certificate no
+
+# don't save last fwd, command history nor transfers
 set cmd:save-cwd-history no
 set cmd:save-rl-history no
 set log:enabled/xfer no
+
+# give up after 3 retries
+set net:max-retries 3
