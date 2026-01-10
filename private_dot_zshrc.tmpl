@@ -12,6 +12,12 @@ typeset -U path
 HISTFILE=~/.zsh_history
 HISTSIZE=10000000000000000
 SAVEHIST=10000000000000000
+zshaddhistory() {
+  if [[ $1 == *postgres* ]]; then
+    print -s "$(printf '%s' "${1%$'\n'}" | sed 's/[^ ]*postgres[^ ]*/meow/g')"
+    return 1
+  fi
+}
 
 # env
 export EDITOR=vim
