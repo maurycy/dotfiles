@@ -145,10 +145,6 @@ command -v pyenv >/dev/null && eval "$(pyenv init - zsh)"
 command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
-# google cloud sdk
-[ -f "$HOME/.local/google-cloud-sdk/path.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/path.zsh.inc"
-[ -f "$HOME/.local/google-cloud-sdk/completion.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/completion.zsh.inc"
-
 # bun completions
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
@@ -183,7 +179,6 @@ alias ll='ls -A@cFl'
 
 # path
 export PATH="$HOME/.local/go/bin:$PATH"
-export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 export PATH="$PATH:$HOME/.local/bin:/snap/bin"
 # export PATH="$HOME/bin:$PATH"
 
@@ -193,6 +188,10 @@ command -v pyenv >/dev/null && eval "$(pyenv virtualenv-init -)"
 # aliases
 alias ll='ls -AcFl'
 {{- end }}
+
+# google cloud sdk
+[ -f "$HOME/.local/google-cloud-sdk/path.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/path.zsh.inc"
+[ -f "$HOME/.local/google-cloud-sdk/completion.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/completion.zsh.inc"
 
 # functions
 diff() {
