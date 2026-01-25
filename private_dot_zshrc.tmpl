@@ -102,8 +102,7 @@ precmd() {
 }
 
 # path
-export PATH="$BUN_INSTALL/bin:$PATH"
-export PATH="$HOME/.local/bin:$PATH"
+[[ -d "$BUN_INSTALL/bin" ]] && path=("$BUN_INSTALL/bin" $path)
 
 # tool initializations
 command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
@@ -210,7 +209,7 @@ mupdate() {
 # rbenv (lazy-loaded)
 if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
   export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
-  export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
+  [[ -d "$RBENV_ROOT/bin" ]] && path=("$RBENV_ROOT/bin" "$RBENV_ROOT/shims" $path)
   _rbenv_load() {
     unset -f ruby gem bundle rbenv irb rake rails
     eval "$(rbenv init - zsh)"
@@ -238,10 +237,10 @@ if [ -d "$NVM_DIR/versions/node" ]; then
   }
   NODE_VER=$(_nvm_resolve_alias default)
   if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
-    export PATH="$NVM_DIR/versions/node/$NODE_VER/bin:$PATH"
+    path=("$NVM_DIR/versions/node/$NODE_VER/bin" $path)
   else
     NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
-    [ -n "$NODE_LATEST" ] && export PATH="$NVM_DIR/versions/node/$NODE_LATEST/bin:$PATH"
+    [[ -n "$NODE_LATEST" ]] && path=("$NVM_DIR/versions/node/$NODE_LATEST/bin" $path)
   fi
   unset -f _nvm_resolve_alias
 fi
@@ -261,6 +260,9 @@ if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
   npm() { _nvm_load; npm "$@"; }
   npx() { _nvm_load; npx "$@"; }
 fi
+
+# xdg PATH first
+path=("$HOME/.local/bin" $path)
 
 # emacs mode (EDITOR=vim defaults to vi mode)
 bindkey -e
