@@ -32,6 +32,7 @@ alias l='ls -lh --color=auto'
 alias rg='rg -p'
 alias be='bundle exec'
 alias paw="pwgen -snyc 128"
+alias python='uv run python'
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
 
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
@@ -119,7 +120,6 @@ precmd() {
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUN_INSTALL="$HOME/.bun"
-export PYENV_ROOT="$HOME/.pyenv"
 export DISABLE_SPRING=1
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
@@ -134,14 +134,12 @@ if [ -x /opt/homebrew/bin/brew ]; then
   source "$_brew_cache"
   unset _brew_cache
 fi
-[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
 export PATH=$PATH:$GOBIN
 export PATH="$PATH:$HOME/.local/bin"
 export PATH="$BUN_INSTALL/bin:$PATH"
 export PATH="$HOME/.claude/local:$PATH"
 
 # tool initializations
-command -v pyenv >/dev/null && eval "$(pyenv init - zsh)"
 command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
@@ -182,7 +180,6 @@ export PATH="$HOME/.local/go/bin:$PATH"
 export PATH="$PATH:$HOME/.local/bin:/snap/bin"
 
 # tool initializations
-command -v pyenv >/dev/null && eval "$(pyenv virtualenv-init -)"
 
 # aliases
 alias ll='ls -AcFl'
@@ -266,7 +263,6 @@ mupdate() {
 
   command -v rustup >/dev/null && { rustup update || return; }
 
-  command -v pyenv >/dev/null && ! _is_brew_pkg pyenv && { pyenv update || true; }
   command -v rbenv >/dev/null && ! _is_brew_pkg rbenv && { rbenv update || true; }
   command -v bun >/dev/null && ! _is_brew_pkg bun && { bun upgrade || true; }
 }
