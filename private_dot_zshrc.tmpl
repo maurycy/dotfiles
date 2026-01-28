@@ -8,7 +8,11 @@ setopt EXTENDED_GLOB
 # deduplicate PATH
 typeset -U path
 
-# history
+# remove history entries older than 7 days
+() {
+  local f=~/.zsh_history c=$((EPOCHSECONDS - 604800))
+  [[ -f $f ]] && awk -v c=$c '/^: [0-9]+:/{if(int(substr($0,3))>=c)print;next}1' $f > $f.tmp && mv $f.tmp $f
+}
 HISTFILE=~/.zsh_history
 HISTSIZE=10000000000000000
 SAVEHIST=10000000000000000
@@ -18,25 +22,6 @@ zshaddhistory() {
     return 1
   fi
 }
-
-# remove history entries older than 7 days
-_cleanup_old_history() {
-  [[ -f "$HISTFILE" ]] || return 0
-  local cutoff=$((EPOCHSECONDS - 7 * 24 * 60 * 60))
-  local tmp
-  tmp=$(mktemp) || return 1
-  # extended history format: ": TIMESTAMP:DURATION;command"
-  awk -v cutoff="$cutoff" '
-    /^: [0-9]+:/ {
-      split($0, parts, ":")
-      ts = parts[2] + 0
-      if (ts >= cutoff) print
-      next
-    }
-    { print }
-  ' "$HISTFILE" > "$tmp" && mv "$tmp" "$HISTFILE"
-}
-_cleanup_old_history
 
 # env
 export EDITOR=vim
