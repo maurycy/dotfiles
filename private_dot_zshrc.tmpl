@@ -19,6 +19,25 @@ zshaddhistory() {
   fi
 }
 
+# remove history entries older than 7 days
+_cleanup_old_history() {
+  [[ -f "$HISTFILE" ]] || return 0
+  local cutoff=$((EPOCHSECONDS - 7 * 24 * 60 * 60))
+  local tmp
+  tmp=$(mktemp) || return 1
+  # extended history format: ": TIMESTAMP:DURATION;command"
+  awk -v cutoff="$cutoff" '
+    /^: [0-9]+:/ {
+      split($0, parts, ":")
+      ts = parts[2] + 0
+      if (ts >= cutoff) print
+      next
+    }
+    { print }
+  ' "$HISTFILE" > "$tmp" && mv "$tmp" "$HISTFILE"
+}
+_cleanup_old_history
+
 # env
 export EDITOR=vim
 export NVM_DIR="$HOME/.nvm"
