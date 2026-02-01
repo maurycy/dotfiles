@@ -102,7 +102,7 @@ autoload -Uz vcs_info
 zstyle ':vcs_info:*' formats '(%b)'
 _set_prompt() {
   if (( $(tput cols) < 120 )); then
-    PS1="%(?..[%?] )%n@%B%m%b %d ${vcs_info_msg_0_} %# "
+    PS1="%(?..[%?] )%n@%B%m%b %1~ ${vcs_info_msg_0_} %# "
   else
     PS1="%(?..[%?] )%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%B%m%b %d ${vcs_info_msg_0_} %# "
   fi
