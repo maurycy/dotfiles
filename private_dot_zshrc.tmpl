@@ -100,9 +100,20 @@ select-word-style bash
 # prompt
 autoload -Uz vcs_info
 zstyle ':vcs_info:*' formats '(%b)'
+_set_prompt() {
+  if (( $(tput cols) < 120 )); then
+    PS1="%(?..[%?] )%n@%B%m%b %d ${vcs_info_msg_0_} %# "
+  else
+    PS1="%(?..[%?] )%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%B%m%b %d ${vcs_info_msg_0_} %# "
+  fi
+}
 precmd() {
   vcs_info
-  PS1="%(?..[%?] )%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%B%m%b %d ${vcs_info_msg_0_} %# "
+  _set_prompt
+}
+TRAPWINCH() {
+  _set_prompt
+  zle && zle reset-prompt
 }
 
 # path
