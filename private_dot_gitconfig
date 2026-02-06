@@ -23,6 +23,7 @@
 
 [tag]
 	sort = version:refname
+	gpgsign = true
 
 [diff]
 	algorithm = histogram
