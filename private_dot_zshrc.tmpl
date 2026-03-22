@@ -134,11 +134,13 @@ if command -v uv >/dev/null; then
   _uv_ver="# $(uv --version)"
   if [[ ! -f "$_uv_cache" || "$_uv_ver" != "$(head -1 "$_uv_cache" 2>/dev/null)" ]]; then
     mkdir -p "${_uv_cache:h}"
-    echo "$_uv_ver" > "$_uv_cache"
-    uv generate-shell-completion zsh >> "$_uv_cache"
+    _uv_tmp="$(mktemp "${_uv_cache}.XXXXXX")"
+    echo "$_uv_ver" > "$_uv_tmp"
+    uv generate-shell-completion zsh >> "$_uv_tmp"
+    mv -f "$_uv_tmp" "$_uv_cache"
   fi
   source "$_uv_cache"
-  unset _uv_cache _uv_ver
+  unset _uv_cache _uv_ver _uv_tmp
 fi
 
 # google cloud sdk
