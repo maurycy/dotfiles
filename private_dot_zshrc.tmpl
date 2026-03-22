@@ -199,6 +199,7 @@ _is_brew_pkg() {
 }
 
 mupdate() {
+  command -v fastfetch >/dev/null && fastfetch
   command -v chezmoi >/dev/null && { chezmoi update || return; }
   command -v uv >/dev/null && { uv self update || return; }
 
