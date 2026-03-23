@@ -225,6 +225,17 @@ mupdate() {
   command -v rbenv >/dev/null && ! _is_brew_pkg rbenv && { rbenv update || true; }
   command -v bun >/dev/null && ! _is_brew_pkg bun && { bun upgrade || true; }
 
+  command -v gh >/dev/null && {
+    gh repo list --fork --json nameWithOwner --jq '.[].nameWithOwner' | while read -r repo; do
+      local parent
+      parent=$(gh api "repos/${repo}" --jq '.parent.full_name' 2>/dev/null)
+      if [[ -n "$parent" && "$parent" != "null" ]]; then
+        echo "Syncing ${repo} <- ${parent}"
+        gh repo sync "$repo" --source "$parent" || true
+      fi
+    done
+  }
+
   whence -w mupdate_local >/dev/null 2>&1 && { mupdate_local || true; }
 }
 
