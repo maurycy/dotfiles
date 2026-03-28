@@ -1,0 +1,32 @@
+name: Lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  chezmoi-validate:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install chezmoi
+        run: sh -c "$(curl -fsLS get.chezmoi.io)"
+      - name: Render templates
+        run: |
+          for f in *.tmpl .chezmoiignore; do
+            [ -f "$f" ] && ./bin/chezmoi execute-template --source . < "$f" > /dev/null
+          done
+      - name: Dry-run apply
+        run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck .bashrc
+        run: shellcheck --shell=bash --exclude=SC1090,SC1091 .bashrc
