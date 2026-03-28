@@ -1,0 +1,39 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  chezmoi-validate:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install chezmoi
+        run: sh -c "$(curl -fsLS get.chezmoi.io)"
+      - name: Render templates
+        run: |
+          for f in *.tmpl .chezmoiignore; do
+            [ -f "$f" ] && ./bin/chezmoi execute-template --source . < "$f" > /dev/null
+          done
+      - name: Install Zsh
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh
+      - name: Check rendered Zsh syntax
+        run: |
+          tmpdir="$(mktemp -d)"
+          for f in private_dot_zprofile.tmpl private_dot_zshrc.tmpl; do
+            ./bin/chezmoi execute-template --source . < "$f" > "$tmpdir/${f%.tmpl}"
+          done
+          zsh -n \
+            "$tmpdir/private_dot_zprofile" \
+            "$tmpdir/private_dot_zshrc"
+      - name: Dry-run apply
+        run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run
