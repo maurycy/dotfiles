@@ -21,6 +21,11 @@ jobs:
           for f in *.tmpl .chezmoiignore; do
             [ -f "$f" ] && ./bin/chezmoi execute-template --source . < "$f" > /dev/null
           done
+      - name: Install Zsh
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh
       - name: Check rendered Zsh syntax
         run: |
           tmpdir="$(mktemp -d)"
