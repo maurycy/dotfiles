@@ -21,12 +21,14 @@ jobs:
           for f in *.tmpl .chezmoiignore; do
             [ -f "$f" ] && ./bin/chezmoi execute-template --source . < "$f" > /dev/null
           done
+      - name: Check rendered Zsh syntax
+        run: |
+          tmpdir="$(mktemp -d)"
+          for f in private_dot_zprofile.tmpl private_dot_zshrc.tmpl; do
+            ./bin/chezmoi execute-template --source . < "$f" > "$tmpdir/${f%.tmpl}"
+          done
+          zsh -n \
+            "$tmpdir/private_dot_zprofile" \
+            "$tmpdir/private_dot_zshrc"
       - name: Dry-run apply
         run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run
-
-  shellcheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: shellcheck .bashrc
-        run: shellcheck --shell=bash --exclude=SC1090,SC1091 .bashrc
