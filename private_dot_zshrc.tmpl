@@ -101,7 +101,8 @@ select-word-style bash
 
 # prompt
 autoload -Uz vcs_info
-zstyle ':vcs_info:*' formats '(%b)'
+zstyle ':vcs_info:git:*' get-revision true
+zstyle ':vcs_info:git:*' formats '(%b %.7i)'
 _set_prompt() {
   if (( $(tput cols) < 120 )); then
     PS1="%(?..[%?] )%n@%B%m%b %1~ ${vcs_info_msg_0_} %# "
