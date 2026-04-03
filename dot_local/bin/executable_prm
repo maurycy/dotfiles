@@ -1,0 +1,99 @@
+#!/bin/bash
+set -eu
+
+if command -v shred >/dev/null 2>&1; then
+  delete() { shred -u "$1"; }
+else
+  delete() { rm "$1"; }
+fi
+
+mode=remove
+dry=0
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      printf 'usage: prm [options] [file ...]\n'
+      printf '\n'
+      printf '  prm file [file ...]   securely delete files and all identical copies in .\n'
+      printf '  prm -d, --duplicates  find duplicate files in . and delete all but one copy\n'
+      printf '  prm -n, --dry         show what would be deleted without deleting\n'
+      printf '  prm -h, --help        show this help\n'
+      exit 0
+      ;;
+    -d|--duplicates)
+      mode=duplicates
+      ;;
+    -n|--dry)
+      dry=1
+      ;;
+  esac
+done
+
+if [ "$mode" = duplicates ]; then
+  seen=$(mktemp)
+  : > "$seen"
+
+  # oldest first: keep the oldest file, delete newer duplicates
+  find . -type f -exec stat -f '%m	%N' {} + | sort -n | cut -f2- | while IFS= read -r file; do
+    # skip if already deleted as a duplicate
+    [ -f "$file" ] || continue
+
+    file_size=$(wc -c < "$file")
+
+    # check if we already processed an identical file
+    while IFS= read -r seen_entry; do
+      [ -n "$seen_entry" ] || continue
+      seen_size="${seen_entry%%	*}"
+      seen_path="${seen_entry#*	}"
+      [ "$seen_size" -eq "$file_size" ] || continue
+      [ -f "$seen_path" ] || continue
+      if cmp -s "$seen_path" "$file"; then
+        if [ "$dry" -eq 1 ]; then
+          printf 'would del %s\n' "$file"
+        else
+          printf 'del %s\n' "$file"
+          delete "$file"
+        fi
+        continue 2
+      fi
+    done < "$seen"
+
+    printf '%s\t%s\n' "$file_size" "$file" >> "$seen"
+  done
+
+  rm "$seen"
+  exit 0
+fi
+
+if [ $# -eq 0 ]; then
+  printf 'usage: prm [options] [file ...]\n' >&2
+  exit 1
+fi
+
+for target in "$@"; do
+  if [ ! -f "$target" ]; then
+    printf 'prm: %s: not a regular file\n' "$target" >&2
+    continue
+  fi
+
+  ref=$(mktemp)
+  cp "$target" "$ref"
+  target_size=$(wc -c < "$target")
+
+  find . -type f -print0 | while IFS= read -r -d '' candidate; do
+    [ -f "$candidate" ] || continue
+    candidate_size=$(wc -c < "$candidate")
+    [ "$candidate_size" -eq "$target_size" ] || continue
+    if cmp -s "$ref" "$candidate"; then
+      if [ "$dry" -eq 1 ]; then
+        printf 'would del %s\n' "$candidate"
+      else
+        printf 'del %s\n' "$candidate"
+        delete "$candidate"
+      fi
+    fi
+  done
+
+  rm "$ref"
+done

@@ -1,0 +1,297 @@
+#!/bin/sh
+# llm-archive - archive documents by date using LLM vision
+# style inspired by https://get.chezmoi.io
+
+set -e
+
+# Configuration
+DEST_BASE="${LLM_ARCHIVE_DEST:-$HOME/Documents/Scans}"
+LLM_MODEL="gemini/gemini-flash-lite-latest"
+LLM_PLUGIN="llm-gemini"
+DRY_RUN="false"
+GLOB_PATTERNS=""
+
+# Temp files for state (needed for subshell communication in POSIX sh)
+STATE_DIR=""
+cleanup() {
+	[ -n "${STATE_DIR}" ] && rm -rf "${STATE_DIR}"
+}
+trap cleanup EXIT
+
+init_state() {
+	STATE_DIR=$(mktemp -d)
+	printf '0' > "${STATE_DIR}/copied"
+	printf '0' > "${STATE_DIR}/duplicates"
+	printf '0' > "${STATE_DIR}/skipped"
+	: > "${STATE_DIR}/copied_files"
+	: > "${STATE_DIR}/duplicate_files"
+	: > "${STATE_DIR}/skipped_files"
+}
+
+usage() {
+	cat <<EOF
+llm-archive: archive documents by date using LLM vision
+
+Usage: llm-archive [options] [directory]
+
+Options:
+    -g, --glob PAT   File pattern to match (repeatable, default: *.pdf *.jpg *.jpeg *.png)
+    -n, --dry-run    Show what would be done without making changes
+    -h, --help       Show this help
+
+Arguments:
+    directory        Directory to scan (default: current directory)
+
+Examples:
+    llm-archive -g "*.pdf" ~/scans
+    llm-archive -g "*.jpg" -g "*.png" .
+EOF
+	exit 0
+}
+
+log_info() {
+	printf 'info %s\n' "$*" 1>&2
+}
+
+log_err() {
+	printf 'error %s\n' "$*" 1>&2
+}
+
+log_action() {
+	if [ "${DRY_RUN}" = "true" ]; then
+		printf '[dry-run] %s\n' "$*" >&2
+	else
+		printf '%s\n' "$*" >&2
+	fi
+}
+
+# Check if a command exists
+is_command() {
+	command -v "$1" >/dev/null 2>&1
+}
+
+# Check if gemini models are available, install plugin if not
+ensure_gemini_models() {
+	log_info "checking for Gemini models"
+	if uvx llm models 2>/dev/null | grep -qi gemini; then
+		log_info "Gemini models available"
+		return 0
+	fi
+
+	log_info "Gemini models not found, installing ${LLM_PLUGIN}"
+	uvx llm install "${LLM_PLUGIN}"
+
+	# Verify installation
+	if ! uvx llm models 2>/dev/null | grep -qi gemini; then
+		log_err "failed to install ${LLM_PLUGIN}"
+		exit 1
+	fi
+	log_info "Gemini models installed successfully"
+}
+
+# Validate date format YYYY-MM-DD
+is_valid_date() {
+	case "$1" in
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+# Extract date components
+get_year() {
+	printf '%s' "$1" | cut -c1-4
+}
+
+get_month() {
+	printf '%s' "$1" | cut -c6-7
+}
+
+# Compute destination path based on date
+compute_dest() {
+	date_str="$1"
+	year=$(get_year "${date_str}")
+	month=$(get_month "${date_str}")
+
+	printf '%s/%s/%s.%s' "${DEST_BASE}" "${year}" "${year}" "${month}"
+}
+
+# Check if file already exists in destination (by hash)
+file_exists_in_dest() {
+	src_file="$1"
+	dest_dir="$2"
+
+	[ -d "${dest_dir}" ] || return 1
+
+	src_hash=$(shasum -a 256 "${src_file}" | cut -d' ' -f1)
+
+	for f in "${dest_dir}"/*; do
+		[ -f "$f" ] || continue
+		dest_hash=$(shasum -a 256 "$f" | cut -d' ' -f1)
+		if [ "${src_hash}" = "${dest_hash}" ]; then
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+# Extract date from document using LLM
+extract_date() {
+	file="$1"
+	uvx llm -m "${LLM_MODEL}" \
+		"Extract when the document was created, in the ISO-8601 (YYYY-MM-DD) format. Return only the date." \
+		-a "${file}" </dev/null 2>&1 | tr -d '[:space:]' || printf ''
+}
+
+# Increment counter in state file
+inc_counter() {
+	counter_file="${STATE_DIR}/$1"
+	val=$(cat "${counter_file}")
+	printf '%d' "$((val + 1))" > "${counter_file}"
+}
+
+# Append to list file
+append_list() {
+	list_file="${STATE_DIR}/$1"
+	printf '%s\n' "$2" >> "${list_file}"
+}
+
+# Process a single file
+process_file() {
+	file="$1"
+	basename=$(basename "${file}")
+
+	date_str=$(extract_date "${file}")
+
+	if is_valid_date "${date_str}"; then
+		dest=$(compute_dest "${date_str}")
+
+		if file_exists_in_dest "${file}" "${dest}"; then
+			inc_counter duplicates
+			append_list duplicate_files "${file}"
+			log_action "${basename} (${date_str}) - duplicate"
+		else
+			if [ "${DRY_RUN}" = "true" ]; then
+				log_action "${basename} (${date_str}) -> ${dest}/"
+			else
+				mkdir -p "${dest}"
+				cp -n "${file}" "${dest}/"
+			fi
+			inc_counter copied
+			append_list copied_files "${dest}/${basename}"
+			log_action "${basename} (${date_str})"
+		fi
+	else
+		inc_counter skipped
+		append_list skipped_files "${basename}"
+		log_action "${basename} (invalid/no date: '${date_str}')"
+	fi
+}
+
+# Print summary
+print_summary() {
+	copied=$(cat "${STATE_DIR}/copied")
+	duplicates=$(cat "${STATE_DIR}/duplicates")
+	skipped=$(cat "${STATE_DIR}/skipped")
+
+	printf '\n=== Summary ===\n' >&2
+	printf 'Copied: %d | Duplicates: %d | Skipped: %d\n' "${copied}" "${duplicates}" "${skipped}" >&2
+
+	if [ "${copied}" -gt 0 ] && [ "${DRY_RUN}" = "false" ]; then
+		printf '\nCopied files (%d):\n' "${copied}" >&2
+		while IFS= read -r item; do
+			[ -n "${item}" ] && ls -ld "${item}" >&2
+		done < "${STATE_DIR}/copied_files"
+	fi
+
+	if [ "${duplicates}" -gt 0 ]; then
+		printf '\nDuplicate files (%d):\n' "${duplicates}" >&2
+		while IFS= read -r item; do
+			[ -n "${item}" ] && ls -ld "${item}" >&2
+		done < "${STATE_DIR}/duplicate_files"
+	fi
+
+	if [ "${skipped}" -gt 0 ]; then
+		printf '\nSkipped files (%d):\n' "${skipped}" >&2
+		while IFS= read -r item; do
+			[ -n "${item}" ] && printf '  %s\n' "${item}" >&2
+		done < "${STATE_DIR}/skipped_files"
+	fi
+}
+
+main() {
+	# Parse arguments
+	dir="."
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			-g|--glob)
+				shift
+				GLOB_PATTERNS="${GLOB_PATTERNS}${GLOB_PATTERNS:+ }$1"
+				shift
+				;;
+			-n|--dry-run)
+				DRY_RUN="true"
+				shift
+				;;
+			-h|--help)
+				usage
+				;;
+			-*)
+				log_err "unknown option: $1"
+				usage
+				;;
+			*)
+				dir="$1"
+				shift
+				;;
+		esac
+	done
+
+	# Validate directory
+	if [ ! -d "${dir}" ]; then
+		log_err "directory not found: ${dir}"
+		exit 1
+	fi
+
+	# Check dependencies
+	if ! is_command uvx; then
+		log_err "uvx is not installed - see https://docs.astral.sh/uv/"
+		exit 1
+	fi
+
+	# Ensure gemini models are available
+	ensure_gemini_models
+
+	# Initialize state tracking
+	init_state
+
+	if [ "${DRY_RUN}" = "true" ]; then
+		log_info "dry run mode - no files will be copied"
+	fi
+
+	# Default glob patterns if none specified
+	if [ -z "${GLOB_PATTERNS}" ]; then
+		GLOB_PATTERNS="*.pdf *.jpg *.jpeg *.png"
+	fi
+
+	# Build find command via positional parameters (no eval)
+	set -- find "${dir}" -type f "("
+	first=true
+	for pat in ${GLOB_PATTERNS}; do
+		[ "${first}" = true ] && first=false || set -- "$@" -o
+		set -- "$@" -iname "${pat}"
+	done
+	set -- "$@" ")" -print0
+
+	"$@" | while IFS= read -r -d '' file; do
+		process_file "${file}" || log_err "failed to process: ${file}"
+	done || true
+
+	print_summary
+}
+
+main "$@"

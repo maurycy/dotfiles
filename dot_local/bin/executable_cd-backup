@@ -1,0 +1,681 @@
+#!/bin/sh
+
+# cd-backup - Comprehensive CD archival backup
+# Creates three independent images (ddrescue, dd, hdiutil) plus raw file extraction.
+# Requires: ddrescue (Homebrew), diskutil, hdiutil, dd, cp, shasum (macOS built-in)
+
+DEST_BASE="$HOME/Desktop"
+TMPDIR=""
+
+die() {
+    printf 'ERROR: %s\n' "$1" >&2
+    if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
+        printf 'Partial data preserved at: %s\n' "$TMPDIR" >&2
+    fi
+    exit 1
+}
+
+warn() {
+    printf 'WARNING: %s\n' "$1" >&2
+}
+
+phase() {
+    printf '\n=== Phase %s: %s ===\n' "$1" "$2"
+}
+
+# Track failures across phases
+FAILURES=""
+
+record_failure() {
+    case "$FAILURES" in
+        "$1"|"$1, "*|*", $1"|*", $1, "*) return ;;
+    esac
+
+    if [ -z "$FAILURES" ]; then
+        FAILURES="$1"
+    else
+        FAILURES="$FAILURES, $1"
+    fi
+}
+
+diskutil_info_value() {
+    diskutil info "$1" 2>/dev/null | awk -F: -v key="$2" '
+        $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+            sub(/^[^:]*:[[:space:]]*/, "", $0)
+            sub(/[[:space:]]+$/, "", $0)
+            print
+            exit
+        }
+    '
+}
+
+resolve_mount_point() {
+    _mount_point=$(diskutil_info_value "$PARTITION" "Mount Point")
+    if [ -z "$_mount_point" ] || [ "$_mount_point" = "Not applicable" ]; then
+        _mount_point=$(diskutil_info_value "$DISK" "Mount Point")
+    fi
+
+    if [ -n "$_mount_point" ] && [ "$_mount_point" != "Not applicable" ] && [ -d "$_mount_point" ]; then
+        printf '%s' "$_mount_point"
+    fi
+}
+
+hex_to_dec() {
+    printf '%d' "$1" 2>/dev/null || printf '0'
+}
+
+# Sum rescued bytes from ddrescue mapfile (hex values, POSIX-compatible)
+mapfile_rescued_bytes() {
+    _total=0
+    while read -r _pos_hex _size_hex _status _rest; do
+        case "$_pos_hex" in
+            ''|\#*) continue ;;
+        esac
+        [ "$_status" = "+" ] || continue
+        _dec=$(hex_to_dec "$_size_hex")
+        _total=$((_total + _dec))
+    done < "$1"
+    printf '%d' "$_total"
+}
+
+# Get end offset of rescued data from ddrescue mapfile
+mapfile_data_end() {
+    _max=0
+    while read -r _pos_hex _size_hex _status _rest; do
+        case "$_pos_hex" in
+            ''|\#*) continue ;;
+        esac
+        [ "$_status" = "+" ] || continue
+        _pos=$(hex_to_dec "$_pos_hex")
+        _sz=$(hex_to_dec "$_size_hex")
+        _end=$((_pos + _sz))
+        if [ "$_end" -gt "$_max" ]; then
+            _max=$_end
+        fi
+    done < "$1"
+    printf '%d' "$_max"
+}
+
+mapfile_covers_range() {
+    _covered_until=0
+    _limit=$2
+
+    if [ -z "$_limit" ] || ! [ "$_limit" -gt 0 ] 2>/dev/null; then
+        return 1
+    fi
+
+    while read -r _pos_hex _size_hex _status _rest; do
+        case "$_pos_hex" in
+            ''|\#*) continue ;;
+        esac
+
+        _pos=$(hex_to_dec "$_pos_hex")
+        _sz=$(hex_to_dec "$_size_hex")
+        [ "$_sz" -gt 0 ] 2>/dev/null || continue
+        _end=$((_pos + _sz))
+
+        if [ "$_pos" -gt "$_covered_until" ] && [ "$_covered_until" -lt "$_limit" ]; then
+            return 1
+        fi
+
+        if [ "$_status" = "+" ] && [ "$_pos" -le "$_covered_until" ]; then
+            if [ "$_end" -gt "$_covered_until" ]; then
+                _covered_until=$_end
+            fi
+            if [ "$_covered_until" -ge "$_limit" ]; then
+                return 0
+            fi
+        elif [ "$_end" -gt "$_covered_until" ] && [ "$_pos" -lt "$_limit" ]; then
+            return 1
+        fi
+    done < "$1"
+
+    [ "$_covered_until" -ge "$_limit" ]
+}
+
+mapfile_bad_regions_before_limit() {
+    _count=0
+    _limit=$2
+
+    if [ -z "$_limit" ] || ! [ "$_limit" -gt 0 ] 2>/dev/null; then
+        printf '0'
+        return
+    fi
+
+    while read -r _pos_hex _size_hex _status _rest; do
+        case "$_pos_hex" in
+            ''|\#*) continue ;;
+        esac
+        [ "$_status" = "+" ] && continue
+
+        _pos=$(hex_to_dec "$_pos_hex")
+        _sz=$(hex_to_dec "$_size_hex")
+        _end=$((_pos + _sz))
+        if [ "$_pos" -lt "$_limit" ] && [ "$_end" -gt "$_pos" ]; then
+            _count=$((_count + 1))
+        fi
+    done < "$1"
+
+    printf '%d' "$_count"
+}
+
+cleanup_hdiutil_output() {
+    rm -f "$TMPDIR/image" "$TMPDIR"/image.*
+}
+
+# --- Dependency check ---
+
+command -v ddrescue >/dev/null 2>&1 || die "ddrescue not found. Install with: brew install ddrescue"
+command -v diskutil >/dev/null 2>&1 || die "diskutil not found (expected on macOS)"
+command -v hdiutil >/dev/null 2>&1 || die "hdiutil not found (expected on macOS)"
+
+# Set up timestamp filter for all output
+_ts_fifo=$(mktemp -u /tmp/cd-backup-ts.XXXXXX)
+mkfifo "$_ts_fifo"
+perl -MTime::HiRes=gettimeofday -MPOSIX=strftime -e '
+  $| = 1;
+  while (<STDIN>) {
+    my ($s, $us) = gettimeofday();
+    my @t = localtime($s);
+    printf "%s.%09d%s %s", strftime("%Y-%m-%dT%H:%M:%S", @t), $us * 1000, strftime("%z", @t), $_;
+  }
+' < "$_ts_fifo" &
+exec > "$_ts_fifo" 2>&1
+rm -f "$_ts_fifo"
+
+# --- Phase 1: Detect optical disc device ---
+
+phase "1" "Detecting optical disc"
+
+cd_disks=""
+cd_disk_count=0
+
+for disk in $(diskutil list | awk -F: '/^\/dev\// { print $1 }'); do
+    # Method 1: CD_partition_scheme (typical for data CDs)
+    scheme=$(diskutil list "$disk" 2>/dev/null | grep '_partition_scheme' || true)
+    if printf '%s' "$scheme" | grep -q 'CD_partition_scheme'; then
+        cd_disks="$disk"
+        cd_disk_count=$((cd_disk_count + 1))
+        continue
+    fi
+
+    # Method 2: optical media without partition scheme (DVDs, some CDs)
+    _optical=$(diskutil_info_value "$disk" "Optical Media Type")
+    if [ -n "$_optical" ] && [ "$_optical" != "Not applicable" ]; then
+        cd_disks="$disk"
+        cd_disk_count=$((cd_disk_count + 1))
+        continue
+    fi
+done
+
+if [ "$cd_disk_count" -eq 0 ]; then
+    die "No optical disc found. Insert a disc and try again."
+fi
+if [ "$cd_disk_count" -gt 1 ]; then
+    die "Multiple optical discs detected. This script expects exactly one disc."
+fi
+
+DISK="$cd_disks"
+# Extract disk identifier (e.g., disk4)
+DISK_ID=$(printf '%s' "$DISK" | sed 's|^/dev/||')
+
+printf 'Found CD at %s\n' "$DISK"
+
+# Find the data partition (e.g., disk4s0)
+PARTITION=""
+for part in $(diskutil list "$DISK" 2>/dev/null | awk -v disk_id="$DISK_ID" '
+    match($0, disk_id "s[0-9]+") {
+        print substr($0, RSTART, RLENGTH)
+        exit
+    }
+'); do
+    PARTITION="/dev/$part"
+    break
+done
+
+if [ -z "$PARTITION" ]; then
+    # Some CDs show the whole disk as the partition
+    PARTITION="$DISK"
+fi
+
+printf 'Data partition: %s\n' "$PARTITION"
+
+# --- Phase 2: Gather metadata ---
+
+phase "2" "Gathering metadata"
+
+# Volume name
+VOL_NAME=$(diskutil_info_value "$PARTITION" "Volume Name")
+
+if [ -z "$VOL_NAME" ] || [ "$VOL_NAME" = "Not applicable" ]; then
+    VOL_NAME="untitled"
+fi
+
+# Sanitize: lowercase, replace non-alphanumeric/hyphen/dot with underscore
+SAFE_VOL=$(printf '%s' "$VOL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/_/g')
+
+printf 'Volume name: %s (sanitized: %s)\n' "$VOL_NAME" "$SAFE_VOL"
+
+# Timestamp (UTC)
+TIMESTAMP=$(date -u +%Y%m%dT%H%M%S)
+printf 'Timestamp: %s\n' "$TIMESTAMP"
+
+# Device block size (CD raw frames are typically 2352 bytes)
+BLOCK_SIZE=$(diskutil_info_value "$DISK" "Device Block Size" | awk '{ print $1 }')
+if [ -z "$BLOCK_SIZE" ] || ! [ "$BLOCK_SIZE" -ge 512 ] 2>/dev/null; then
+    BLOCK_SIZE=2048
+    warn "Could not detect block size, defaulting to $BLOCK_SIZE"
+fi
+
+# Partition/volume size for comparison and ddrescue scope
+# Volume Total Space reflects actual data on partially-burned media, but requires mount
+DISK_SIZE=$(diskutil_info_value "$PARTITION" "Disk Size" | sed -n 's/.*(\([0-9]*\) Bytes).*/\1/p')
+VOL_SIZE=$(diskutil_info_value "$PARTITION" "Volume Total Space" | sed -n 's/.*(\([0-9]*\) Bytes).*/\1/p')
+
+# Volume Total Space is 0 when unmounted - mount temporarily to get it
+if { [ -z "$VOL_SIZE" ] || [ "$VOL_SIZE" -eq 0 ] 2>/dev/null; } then
+    _was_unmounted=0
+    _mnt_check=$(diskutil_info_value "$PARTITION" "Mounted")
+    if [ "$_mnt_check" = "No" ]; then
+        _was_unmounted=1
+        diskutil mount "$PARTITION" >/dev/null 2>&1
+    fi
+    VOL_SIZE=$(diskutil_info_value "$PARTITION" "Volume Total Space" | sed -n 's/.*(\([0-9]*\) Bytes).*/\1/p')
+    if [ "$_was_unmounted" -eq 1 ]; then
+        diskutil unmount "$PARTITION" >/dev/null 2>&1
+    fi
+fi
+
+if [ -n "$VOL_SIZE" ] && [ "$VOL_SIZE" -gt 0 ] 2>/dev/null; then
+    PART_SIZE="$VOL_SIZE"
+    printf 'Volume size: %s bytes (disc size: %s bytes)\n' "$VOL_SIZE" "${DISK_SIZE:-unknown}"
+else
+    PART_SIZE="$DISK_SIZE"
+fi
+
+RAW_DISK="/dev/r${DISK_ID}"
+printf 'Raw device: %s\n' "$RAW_DISK"
+printf 'Device block size: %s bytes\n' "$BLOCK_SIZE"
+printf 'Partition size: %s bytes\n' "${PART_SIZE:-unknown}"
+
+# --- Phase 3: Create temp working directory ---
+
+phase "3" "Creating temporary directory"
+
+TMPDIR=$(mktemp -d "$DEST_BASE/cd-backup-tmp.XXXXXX")
+printf 'Working directory: %s\n' "$TMPDIR"
+
+# Image paths
+DDRESCUE_IMAGE="$TMPDIR/image.ddrescue.iso"
+DDRESCUE_MAP="$TMPDIR/image.ddrescue.iso.map"
+DD_IMAGE="$TMPDIR/image.dd.iso"
+HDIUTIL_IMAGE="$TMPDIR/image.cdr"
+
+DDRESCUE_OK=0
+DD_OK=0
+HDIUTIL_OK=0
+
+# --- Phase A: Copy raw files ---
+
+phase "A" "Copying raw files from mounted volume"
+
+MOUNT_POINT=$(resolve_mount_point)
+
+if [ -z "$MOUNT_POINT" ]; then
+    printf 'Volume not mounted - attempting temporary mount for file copy\n'
+    if diskutil mount "$PARTITION" >/dev/null 2>&1; then
+        MOUNT_POINT=$(resolve_mount_point)
+    fi
+fi
+
+if [ -n "$MOUNT_POINT" ] && [ "$MOUNT_POINT" != "Not applicable" ] && [ -d "$MOUNT_POINT" ]; then
+    mkdir -p "$TMPDIR/files"
+    if cp -a "$MOUNT_POINT/." "$TMPDIR/files/"; then
+        SRC_COUNT=$(find "$MOUNT_POINT" -type f 2>/dev/null | wc -l | tr -d ' ')
+        DST_COUNT=$(find "$TMPDIR/files" -type f 2>/dev/null | wc -l | tr -d ' ')
+        printf 'Copied %s files (source had %s)\n' "$DST_COUNT" "$SRC_COUNT"
+        if [ "$SRC_COUNT" != "$DST_COUNT" ]; then
+            warn "File count mismatch: source=$SRC_COUNT copied=$DST_COUNT"
+            record_failure "file copy (count mismatch)"
+        fi
+    else
+        warn "File copy failed or partially failed"
+        record_failure "file copy"
+    fi
+else
+    warn "Volume could not be mounted - skipping file extraction"
+    record_failure "file copy (mount failed)"
+fi
+
+# --- Phase B: Unmount volume ---
+
+phase "B" "Unmounting volume (keeping disc accessible)"
+
+if [ -n "$MOUNT_POINT" ] && [ "$MOUNT_POINT" != "Not applicable" ]; then
+    if diskutil unmount "$PARTITION" 2>/dev/null; then
+        printf 'Unmounted %s\n' "$PARTITION"
+    else
+        # Try unmounting by mount point
+        if diskutil unmount "$MOUNT_POINT" 2>/dev/null; then
+            printf 'Unmounted %s\n' "$MOUNT_POINT"
+        else
+            warn "Could not unmount volume - imaging tools may have issues"
+        fi
+    fi
+else
+    printf 'Volume was not mounted, nothing to unmount\n'
+fi
+
+# --- Phase C: hdiutil (run first while device is fresh) ---
+
+phase "C" "hdiutil imaging (Apple format)"
+
+# hdiutil uses the block device (not raw); try whole disk first, then partition
+cleanup_hdiutil_output
+HDIUTIL_SRC="$DISK"
+HDIUTIL_STATUS=1
+
+if hdiutil create -srcdevice "$HDIUTIL_SRC" -format UDTO -o "$TMPDIR/image" 2>&1; then
+    HDIUTIL_STATUS=0
+else
+    warn "hdiutil failed on whole disk, trying partition device"
+    cleanup_hdiutil_output
+    HDIUTIL_SRC="$PARTITION"
+    if hdiutil create -srcdevice "$HDIUTIL_SRC" -format UDTO -o "$TMPDIR/image" 2>&1; then
+        HDIUTIL_STATUS=0
+    else
+        cleanup_hdiutil_output
+    fi
+fi
+
+if [ "$HDIUTIL_STATUS" -eq 0 ] && [ -f "$HDIUTIL_IMAGE" ]; then
+    HDIUTIL_OK=1
+    printf 'hdiutil complete (source: %s)\n' "$HDIUTIL_SRC"
+else
+    if [ "$HDIUTIL_STATUS" -eq 0 ]; then
+        warn "hdiutil reported success but did not leave a CDR image"
+    fi
+    warn "hdiutil could not create image from either device"
+    record_failure "hdiutil"
+fi
+
+# --- Phase D: ddrescue (may stress the device with error scanning) ---
+
+phase "D" "ddrescue imaging (error-resilient)"
+
+# Round up PART_SIZE to nearest BLOCK_SIZE multiple so ddrescue reads are aligned
+DDRESCUE_SIZE=""
+if [ -n "$PART_SIZE" ] && [ "$PART_SIZE" -gt 0 ] 2>/dev/null; then
+    DDRESCUE_SIZE=$(( ((PART_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE ))
+    printf 'Partition size %s bytes -> aligned to %s bytes (block size %s).\n' "$PART_SIZE" "$DDRESCUE_SIZE" "$BLOCK_SIZE"
+fi
+
+printf 'Pass 1 (fast scan)...\n'
+if ddrescue -n -c 64 -b"$BLOCK_SIZE" ${DDRESCUE_SIZE:+-s "$DDRESCUE_SIZE"} "$RAW_DISK" "$DDRESCUE_IMAGE" "$DDRESCUE_MAP"; then
+    printf 'Pass 1 complete\n'
+else
+    warn "ddrescue pass 1 reported errors (will check if data track was captured)"
+fi
+
+# Check if pass 2 is needed: if rescued bytes already cover the partition, errors
+# are just blank CD-R space and retrying would waste time and risk device disconnect
+SKIP_PASS2=0
+if [ -f "$DDRESCUE_MAP" ] && [ -n "$PART_SIZE" ]; then
+    RESCUED_AFTER_P1=$(mapfile_rescued_bytes "$DDRESCUE_MAP")
+    printf 'After pass 1: rescued %s bytes (partition: %s bytes)\n' "$RESCUED_AFTER_P1" "$PART_SIZE"
+    if mapfile_covers_range "$DDRESCUE_MAP" "$PART_SIZE"; then
+        printf 'Data track fully covered - skipping pass 2 (remaining errors are beyond the data range)\n'
+        SKIP_PASS2=1
+    fi
+fi
+
+if [ "$SKIP_PASS2" -eq 0 ]; then
+    printf 'Pass 2 (aggressive retry)...\n'
+    # Note: -d (direct access) is not available on macOS for optical drives
+    if ddrescue -r2 -c 64 -b"$BLOCK_SIZE" ${DDRESCUE_SIZE:+-s "$DDRESCUE_SIZE"} "$RAW_DISK" "$DDRESCUE_IMAGE" "$DDRESCUE_MAP"; then
+        printf 'Pass 2 complete\n'
+    else
+        warn "ddrescue pass 2 reported errors - check mapfile for bad sectors"
+    fi
+fi
+
+# Evaluate ddrescue results
+if [ -f "$DDRESCUE_IMAGE" ] && [ -f "$DDRESCUE_MAP" ]; then
+    BAD_REGIONS=$(awk '!/^#/ && NF >= 3 && $3 != "+" { count++ } END { print count + 0 }' "$DDRESCUE_MAP")
+    RESCUED_BYTES=$(mapfile_rescued_bytes "$DDRESCUE_MAP")
+    if [ -n "$PART_SIZE" ] && mapfile_covers_range "$DDRESCUE_MAP" "$PART_SIZE"; then
+        BAD_REGIONS_IN_DATA=$(mapfile_bad_regions_before_limit "$DDRESCUE_MAP" "$PART_SIZE")
+        BAD_REGIONS_BEYOND_DATA=$((BAD_REGIONS - BAD_REGIONS_IN_DATA))
+        if [ "$BAD_REGIONS_BEYOND_DATA" -gt 0 ]; then
+            printf 'ddrescue: %s unreadable regions beyond the data track\n' "$BAD_REGIONS_BEYOND_DATA"
+        fi
+        printf 'ddrescue: rescued full data range (%s bytes)\n' "$PART_SIZE"
+        DDRESCUE_OK=1
+    elif [ "$BAD_REGIONS" -gt 0 ]; then
+        if [ -n "$PART_SIZE" ]; then
+            BAD_REGIONS_IN_DATA=$(mapfile_bad_regions_before_limit "$DDRESCUE_MAP" "$PART_SIZE")
+            warn "ddrescue: $BAD_REGIONS_IN_DATA unrecovered regions within data track"
+        else
+            warn "ddrescue: $BAD_REGIONS unrecovered regions"
+        fi
+        warn "ddrescue: rescued $RESCUED_BYTES bytes (partition: ${PART_SIZE:-unknown} bytes)"
+        record_failure "ddrescue"
+    else
+        printf 'ddrescue: all regions recovered successfully\n'
+        DDRESCUE_OK=1
+    fi
+elif [ -f "$DDRESCUE_IMAGE" ]; then
+    # No mapfile but image exists
+    DDRESCUE_OK=1
+else
+    warn "ddrescue did not produce an ISO image"
+    record_failure "ddrescue"
+fi
+
+# --- Phase E: dd (limited to data extent from ddrescue) ---
+
+phase "E" "dd imaging (simple sector copy)"
+
+# Determine how many sectors to read
+DD_COUNT=""
+if [ -f "$DDRESCUE_MAP" ]; then
+    DATA_END=$(mapfile_data_end "$DDRESCUE_MAP")
+    if [ "$DATA_END" -gt 0 ] 2>/dev/null; then
+        DD_COUNT=$(( (DATA_END + BLOCK_SIZE - 1) / BLOCK_SIZE ))
+        printf 'Limiting dd to %s sectors (%s bytes) based on ddrescue data extent\n' "$DD_COUNT" "$DATA_END"
+    fi
+fi
+
+DD_CMD="dd if=$RAW_DISK of=$DD_IMAGE bs=$BLOCK_SIZE"
+if [ -n "$DD_COUNT" ]; then
+    DD_CMD="$DD_CMD count=$DD_COUNT"
+else
+    DD_CMD="$DD_CMD conv=noerror,sync"
+    printf 'No ddrescue data extent available - reading full disc with conv=noerror,sync\n'
+fi
+
+if eval "$DD_CMD" 2>&1; then
+    printf 'dd complete\n'
+    DD_OK=1
+else
+    warn "dd failed or had errors"
+    record_failure "dd"
+    if [ -f "$DD_IMAGE" ]; then
+        warn "dd produced a partial image"
+    fi
+fi
+
+# --- Phase F: Remount disc ---
+
+phase "F" "Remounting disc"
+
+if diskutil mount "$PARTITION" 2>/dev/null; then
+    printf 'Remounted %s\n' "$PARTITION"
+else
+    warn "Could not remount disc (you may need to eject and reinsert)"
+fi
+
+# --- Phase G: Compute hash and rename ---
+
+phase "G" "Computing hash and finalizing directory"
+
+PRIMARY_IMAGE=""
+PRIMARY_LABEL=""
+
+if [ "$DDRESCUE_OK" -eq 1 ] && [ -f "$DDRESCUE_IMAGE" ]; then
+    PRIMARY_IMAGE="$DDRESCUE_IMAGE"
+    PRIMARY_LABEL="ddrescue ISO"
+elif [ "$DD_OK" -eq 1 ] && [ -f "$DD_IMAGE" ]; then
+    PRIMARY_IMAGE="$DD_IMAGE"
+    PRIMARY_LABEL="dd ISO"
+elif [ "$HDIUTIL_OK" -eq 1 ] && [ -f "$HDIUTIL_IMAGE" ]; then
+    PRIMARY_IMAGE="$HDIUTIL_IMAGE"
+    PRIMARY_LABEL="hdiutil CDR"
+elif [ -f "$DDRESCUE_IMAGE" ]; then
+    PRIMARY_IMAGE="$DDRESCUE_IMAGE"
+    PRIMARY_LABEL="partial ddrescue ISO"
+elif [ -f "$DD_IMAGE" ]; then
+    PRIMARY_IMAGE="$DD_IMAGE"
+    PRIMARY_LABEL="partial dd ISO"
+elif [ -f "$HDIUTIL_IMAGE" ]; then
+    PRIMARY_IMAGE="$HDIUTIL_IMAGE"
+    PRIMARY_LABEL="partial hdiutil CDR"
+else
+    die "No disk image was created - cannot compute an identifier"
+fi
+
+HASH_FULL=$(shasum -a 256 "$PRIMARY_IMAGE" | cut -d' ' -f1)
+HASH8=$(printf '%s' "$HASH_FULL" | cut -c1-8)
+printf 'Primary image for identifier: %s\n' "$PRIMARY_LABEL"
+printf 'SHA256: %s\n' "$HASH_FULL"
+printf 'Short hash: %s\n' "$HASH8"
+
+FINAL_ID="${SAFE_VOL}_${HASH8}_${TIMESTAMP}"
+FINAL_DIR="$DEST_BASE/$FINAL_ID"
+
+printf 'Final identifier: %s\n' "$FINAL_ID"
+
+if [ -e "$FINAL_DIR" ]; then
+    die "Output directory already exists: $FINAL_DIR"
+fi
+
+mv "$TMPDIR" "$FINAL_DIR"
+TMPDIR=""
+
+# Rename files
+cd "$FINAL_DIR" || die "Could not enter output directory: $FINAL_DIR"
+[ -f "image.ddrescue.iso" ] && mv "image.ddrescue.iso" "${FINAL_ID}.ddrescue.iso"
+[ -f "image.ddrescue.iso.map" ] && mv "image.ddrescue.iso.map" "${FINAL_ID}.ddrescue.iso.map"
+[ -f "image.dd.iso" ] && mv "image.dd.iso" "${FINAL_ID}.dd.iso"
+[ -f "image.cdr" ] && mv "image.cdr" "${FINAL_ID}.cdr"
+[ -d "files" ] && mv "files" "${FINAL_ID}"
+
+# Clean up backup mapfile if present
+rm -f image.ddrescue.iso.map.bak
+
+printf 'Files renamed to %s.*\n' "$FINAL_ID"
+
+# --- Phase H: Verification and summary ---
+
+phase "H" "Verification and summary"
+
+printf '\nOutput directory: %s\n\n' "$FINAL_DIR"
+printf 'Contents:\n'
+for f in "$FINAL_DIR"/*; do
+    if [ -d "$f" ]; then
+        COUNT=$(find "$f" -type f 2>/dev/null | wc -l | tr -d ' ')
+        printf '  %s/ (%s files)\n' "$(basename "$f")" "$COUNT"
+    elif [ -f "$f" ]; then
+        SIZE=$(du -h "$f" | cut -f1 | tr -d ' ')
+        printf '  %s (%s)\n' "$(basename "$f")" "$SIZE"
+    fi
+done
+
+# Compare dd and ddrescue checksums (only meaningful when both images have the same scope)
+printf '\n'
+DD_ISO="$FINAL_DIR/${FINAL_ID}.dd.iso"
+DDRESCUE_ISO="$FINAL_DIR/${FINAL_ID}.ddrescue.iso"
+if [ "$DD_OK" -eq 1 ] && [ "$DDRESCUE_OK" -eq 1 ] && [ -f "$DD_ISO" ] && [ -f "$DDRESCUE_ISO" ]; then
+    DD_SIZE=$(wc -c < "$DD_ISO" | tr -d ' ')
+    DR_SIZE=$(wc -c < "$DDRESCUE_ISO" | tr -d ' ')
+    if [ "$DD_SIZE" = "$DR_SIZE" ]; then
+        DD_HASH=$(shasum -a 256 "$DD_ISO" | cut -d' ' -f1)
+        printf 'ddrescue ISO SHA256: %s\n' "$HASH_FULL"
+        printf 'dd ISO SHA256:       %s\n' "$DD_HASH"
+        if [ "$DD_HASH" = "$HASH_FULL" ]; then
+            printf 'Checksums MATCH - disc read consistently across both methods\n'
+        else
+            warn "Checksums DIFFER - disc may have read errors or is degrading"
+        fi
+    else
+        printf 'dd ISO: %s bytes, ddrescue ISO: %s bytes (different scope, checksum comparison skipped)\n' "$DD_SIZE" "$DR_SIZE"
+    fi
+fi
+
+# ddrescue mapfile summary
+if [ -f "$FINAL_DIR/${FINAL_ID}.ddrescue.iso.map" ]; then
+    printf '\nddrescue mapfile summary:\n'
+    grep '^#' "$FINAL_DIR/${FINAL_ID}.ddrescue.iso.map" | tail -5
+fi
+
+# --- Phase I: Mount images and verify file integrity ---
+
+FILES_DIR="$FINAL_DIR/${FINAL_ID}"
+
+if [ -d "$FILES_DIR" ]; then
+    phase "I" "Verifying images against extracted files"
+
+    verify_image() {
+        _label="$1"
+        _image="$2"
+
+        if [ ! -f "$_image" ]; then
+            return
+        fi
+
+        printf '\nVerifying %s...\n' "$_label"
+
+        _mnt=$(hdiutil attach -readonly -nobrowse "$_image" 2>/dev/null | awk -F'\t' '/\/Volumes\// { sub(/^[[:space:]]*/, "", $NF); print $NF; exit }')
+
+        if [ -z "$_mnt" ] || [ ! -d "$_mnt" ]; then
+            printf '  %s: not mountable (raw frame image) - skipping\n' "$_label"
+            return
+        fi
+
+        printf '  Mounted at: %s\n' "$_mnt"
+
+        _diff=$(rsync -rcn --delete --itemize-changes "$_mnt/" "$FILES_DIR/" 2>&1)
+
+        if [ -z "$_diff" ]; then
+            printf '  %s: files match extracted copy\n' "$_label"
+        else
+            _count=$(printf '%s\n' "$_diff" | wc -l | tr -d ' ')
+            printf '  %s: %s differences found:\n' "$_label" "$_count"
+            printf '%s\n' "$_diff" | head -20 | sed 's/^/    /'
+            if [ "$_count" -gt 20 ]; then
+                printf '    ... and %s more\n' $((_count - 20))
+            fi
+            record_failure "$_label verify (files differ)"
+        fi
+
+        hdiutil detach "$_mnt" -quiet 2>/dev/null || true
+    }
+
+    verify_image "ddrescue ISO" "$FINAL_DIR/${FINAL_ID}.ddrescue.iso"
+    verify_image "dd ISO" "$FINAL_DIR/${FINAL_ID}.dd.iso"
+    verify_image "hdiutil CDR" "$FINAL_DIR/${FINAL_ID}.cdr"
+else
+    printf '\nSkipping image verification (no extracted files to compare against)\n'
+fi
+
+# Final status
+printf '\n'
+if [ -n "$FAILURES" ]; then
+    printf '*** COMPLETED WITH ISSUES: %s ***\n' "$FAILURES"
+    printf 'Data preserved at: %s\n' "$FINAL_DIR"
+    exit 1
+else
+    printf 'All phases completed successfully.\n'
+    printf 'Backup at: %s\n' "$FINAL_DIR"
+    exit 0
+fi
