@@ -1,0 +1,456 @@
+#!/bin/sh
+# OCR for scanned pages via LLM
+# See also: pdf-split (split a PDF into individual pages)
+
+usage() {
+  cat <<'EOF'
+Usage: llm-ocr [OPTIONS] [FILE|DIR ...]
+
+Transcribe scanned pages using an LLM (gemini-3-flash-preview).
+
+Arguments:
+  FILE/DIR    process one or more files/directories
+  (none)      process matching files in current directory
+
+Options:
+  --limit N   skip files larger than N MB (default: 30)
+  --force     reprocess even if non-empty .txt exists
+  --model M   LLM model to use (default: gemini/gemini-3-flash-preview)
+  --prompt F  load prompt from file F (default: built-in German transcription)
+  --ext EXT   add file extension to scan (may be repeated)
+              default: png jpg pdf
+  --glob P    only process files matching glob pattern P (may be repeated)
+              overrides --ext when specified
+  --recursive recurse into subdirectories (off by default)
+  --except P  skip files matching glob pattern P (may be repeated)
+  --opt K V   pass -o K V to llm (may be repeated)
+  --parallel N run N files concurrently (default: 1)
+  --dry-run   print actions without calling llm or writing files
+  --reducto        use Reducto for parsing (output: .parse.md)
+  --reducto-schema F  extract structured data with JSON schema F (output: .extract.json)
+                      implies --reducto; requires REDUCTO_API_KEY env var
+  --help      show this help
+
+Examples:
+  llm-ocr                           # png/jpg/pdf in CWD
+  llm-ocr scan.png other.pdf        # multiple files
+  llm-ocr ../scans/ ../more/        # multiple directories
+  llm-ocr --ext tiff --ext bmp .    # custom extensions
+  llm-ocr --glob '*_600dpi.png' .   # only 600dpi PNGs
+  llm-ocr --prompt prompt.txt .     # custom prompt
+  llm-ocr --except '*_cover.*' .    # skip cover files
+  llm-ocr --limit 100 .             # include files up to 100MB
+  llm-ocr --limit 0 .               # no size limit
+  llm-ocr --opt media_resolution high .  # -> *.media_resolution_high.{hash}.txt
+  llm-ocr --dry-run --recursive -j 16 .
+  REDUCTO_API_KEY=... llm-ocr --reducto -j 8 ./docs/
+  REDUCTO_API_KEY=... llm-ocr --reducto-schema schema.json -j 8 ./docs/
+EOF
+  exit 0
+}
+
+DEFAULT_PROMPT='Transkribiere den gesamten Text dieser Seite wortgetreu.  Regeln: - Fraktur und Antiqua erkennen. Langes s als s wiedergeben.  - Silbentrennung am Zeilenende aufloesen (getrennte Woerter zusammenfuegen).  - Seitenzahlen, Kopfzeilen und Fusszeilen weglassen.  - Paragraphen, Artikel, Absaetze und Einrueckungen beibehalten.  - Tabellen als Spalten mit Leerzeichen wiedergeben.  - Nur den Dokumenttext ausgeben. Keine Kommentare, keine Erklaerungen.'
+
+LIMIT_MB=30
+FORCE=0
+MODEL="gemini/gemini-3-flash-preview"
+PROMPT=""
+EXTS=""
+GLOBS=""
+RECURSIVE=0
+EXCEPTS=""
+LLM_OPTS=""
+PARALLEL=1
+DRY_RUN=0
+MIN_GOOD_BYTES=3
+REDUCTO=0
+REDUCTO_SCHEMA=""
+
+WORKER=""
+RAW_LIST=""
+FINAL_LIST=""
+TARGETS_FILE=""
+
+cleanup_tmp() {
+  [ -n "$WORKER" ] && rm -f "$WORKER"
+  [ -n "$RAW_LIST" ] && rm -f "$RAW_LIST"
+  [ -n "$FINAL_LIST" ] && rm -f "$FINAL_LIST"
+  [ -n "$TARGETS_FILE" ] && rm -f "$TARGETS_FILE"
+}
+trap cleanup_tmp EXIT HUP INT TERM
+
+TARGETS_FILE=$(mktemp)
+TARGET_COUNT=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      ;;
+    --limit)
+      if [ -z "$2" ]; then
+        echo "ERROR: --limit requires an argument" >&2
+        exit 1
+      fi
+      LIMIT_MB="$2"
+      shift 2
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    --model)
+      if [ -z "$2" ]; then
+        echo "ERROR: --model requires an argument" >&2
+        exit 1
+      fi
+      MODEL="$2"
+      shift 2
+      ;;
+    --prompt)
+      PROMPT_FILE="$2"
+      if [ -z "$PROMPT_FILE" ] || [ ! -f "$PROMPT_FILE" ]; then
+        echo "ERROR: prompt file not found: $PROMPT_FILE" >&2
+        exit 1
+      fi
+      PROMPT="$(cat "$PROMPT_FILE")"
+      shift 2
+      ;;
+    --ext)
+      if [ -z "$2" ]; then
+        echo "ERROR: --ext requires an argument" >&2
+        exit 1
+      fi
+      EXTS="$EXTS $2"
+      shift 2
+      ;;
+    --glob)
+      if [ -z "$2" ]; then
+        echo "ERROR: --glob requires an argument" >&2
+        exit 1
+      fi
+      GLOBS="$GLOBS $2"
+      shift 2
+      ;;
+    --recursive|-r)
+      RECURSIVE=1
+      shift
+      ;;
+    --opt|-o)
+      if [ -z "$2" ] || [ -z "$3" ]; then
+        echo "ERROR: --opt requires KEY VALUE" >&2
+        exit 1
+      fi
+      LLM_OPTS="$LLM_OPTS -o $2 $3"
+      shift 3
+      ;;
+    --except)
+      if [ -z "$2" ]; then
+        echo "ERROR: --except requires an argument" >&2
+        exit 1
+      fi
+      EXCEPTS="$EXCEPTS|$2"
+      shift 2
+      ;;
+    --parallel|-j)
+      if [ -z "$2" ]; then
+        echo "ERROR: --parallel requires a number" >&2
+        exit 1
+      fi
+      PARALLEL="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --reducto)
+      REDUCTO=1
+      shift
+      ;;
+    --reducto-schema)
+      if [ -z "$2" ]; then
+        echo "ERROR: --reducto-schema requires a file argument" >&2
+        exit 1
+      fi
+      if [ ! -f "$2" ]; then
+        echo "ERROR: schema file not found: $2" >&2
+        exit 1
+      fi
+      REDUCTO_SCHEMA="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+      REDUCTO=1
+      shift 2
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Try 'llm-ocr --help' for usage." >&2
+      exit 1
+      ;;
+    *)
+      printf '%s\n' "$1" >> "$TARGETS_FILE"
+      TARGET_COUNT=$((TARGET_COUNT + 1))
+      shift
+      ;;
+  esac
+done
+
+if [ "$REDUCTO" = "1" ] && [ -z "$REDUCTO_API_KEY" ]; then
+  echo "ERROR: REDUCTO_API_KEY env var is required for --reducto mode" >&2
+  exit 1
+fi
+
+case "$PARALLEL" in
+  ''|*[!0-9]*)
+    echo "ERROR: --parallel must be a positive integer" >&2
+    exit 1
+    ;;
+  0)
+    echo "ERROR: --parallel must be >= 1" >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "$PROMPT" ]; then
+  PROMPT="$DEFAULT_PROMPT"
+fi
+
+if [ -z "$EXTS" ]; then
+  EXTS="png jpg pdf"
+fi
+
+# Compute sha256 of prompt (first 8 chars for filename)
+# Sanitize model name for filename: take last component, replace non-alnum with _
+MODEL_TAG=$(printf '%s' "$MODEL" | sed 's|.*/||; s/[^a-zA-Z0-9._-]/_/g')
+PROMPT_HASH=$(printf '%s%s' "$PROMPT" "$LLM_OPTS" | sha256sum | cut -c1-8)
+# Build opts tag from LLM_OPTS: " -o key val -o key2 val2" -> "key_val.key2_val2"
+OPTS_TAG=$(printf '%s' "$LLM_OPTS" | sed 's/ -o /\n/g' | sed '/^$/d' | sed 's/ /_/g; s/[^a-zA-Z0-9._-]//g' | paste -sd '.' -)
+
+# Auto-detect LLM plugin from model prefix
+LLM_PLUGIN=""
+case "$MODEL" in
+  gemini/*) LLM_PLUGIN="llm-gemini" ;;
+esac
+
+collect_files() {
+  dir="$1"
+  if [ "$RECURSIVE" = "1" ]; then
+    depth=""
+  else
+    depth="-maxdepth 1"
+  fi
+  if [ -n "$GLOBS" ]; then
+    for pat in $GLOBS; do
+      find "$dir" $depth -type f -name "$pat" -print0
+    done
+  else
+    for ext in $EXTS; do
+      find "$dir" $depth -type f -name "*.$ext" -print0
+    done
+  fi
+}
+
+RAW_LIST=$(mktemp)
+FINAL_LIST=$(mktemp)
+
+if [ "$TARGET_COUNT" -eq 0 ]; then
+  collect_files "." >> "$RAW_LIST"
+else
+  while IFS= read -r target; do
+    if [ -f "$target" ]; then
+      printf '%s\0' "$target" >> "$RAW_LIST"
+    elif [ -d "$target" ]; then
+      collect_files "$target" >> "$RAW_LIST"
+    else
+      echo "ERROR: not a file or directory: $target" >&2
+      exit 1
+    fi
+  done < "$TARGETS_FILE"
+fi
+
+if [ ! -s "$RAW_LIST" ]; then
+  echo "No matching files found."
+  exit 0
+fi
+
+if sort --help 2>/dev/null | grep -q ' -z'; then
+  LC_ALL=C sort -zu "$RAW_LIST" > "$FINAL_LIST"
+else
+  # Fallback for systems without sort -z support.
+  tr '\0' '\n' < "$RAW_LIST" | LC_ALL=C sort -u | awk 'length { printf "%s%c", $0, 0 }' > "$FINAL_LIST"
+fi
+
+N_FILES=$(tr '\0' '\n' < "$FINAL_LIST" | sed '/^$/d' | wc -l | tr -d ' ')
+if [ "$N_FILES" -eq 0 ]; then
+  echo "No matching files found."
+  exit 0
+fi
+
+# Build a worker script for xargs -P.
+WORKER=$(mktemp)
+cat > "$WORKER" <<'WORKEREOF'
+#!/bin/sh
+f="$1"
+
+find_existing() {
+  find "$(dirname "$f")" -maxdepth 1 -name "$skip_pattern" -size +$((MIN_GOOD_BYTES - 1))c -print -quit 2>/dev/null
+}
+
+if [ -n "$EXCEPTS" ]; then
+  fname="$(basename "$f")"
+  IFS='|'
+  for pat in $EXCEPTS; do
+    [ -z "$pat" ] && continue
+    case "$fname" in
+      $pat)
+        echo "SKIP: $f (matches --except)"
+        exit 0
+        ;;
+    esac
+  done
+  unset IFS
+fi
+
+# Determine skip pattern and output path based on mode
+if [ "$REDUCTO" = "1" ]; then
+  if [ -n "$REDUCTO_SCHEMA" ]; then
+    skip_file="${f}.extract.json"
+    out_desc="${f}.extract.json"
+  else
+    skip_file="${f}.parse.md"
+    out_desc="${f}.parse.md"
+  fi
+
+  if [ "$FORCE" = "0" ] && [ -f "$skip_file" ] && [ "$(stat -c%s "$skip_file" 2>/dev/null || stat -f%z "$skip_file" 2>/dev/null)" -gt "$MIN_GOOD_BYTES" ]; then
+    echo "SKIP: $f -> $skip_file (exists, non-empty)"
+    exit 0
+  fi
+else
+  base="${f%.*}"
+  if [ -n "$OPTS_TAG" ]; then
+    config_tag="${MODEL_TAG}.${OPTS_TAG}.${PROMPT_HASH}"
+  else
+    config_tag="${MODEL_TAG}.${PROMPT_HASH}"
+  fi
+
+  skip_pattern="$(basename "$base").${config_tag}.*.txt"
+
+  if [ "$FORCE" = "0" ]; then
+    existing="$(find_existing)"
+    if [ -n "$existing" ]; then
+      echo "SKIP: $f -> $existing (exists, non-empty)"
+      exit 0
+    fi
+  fi
+fi
+
+size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null)
+if [ "$LIMIT_MB" -gt 0 ] 2>/dev/null && [ "$size" -gt $((LIMIT_MB * 1048576)) ]; then
+  echo "SKIP: $f (${size} bytes > ${LIMIT_MB}MB, use --limit to adjust)"
+  exit 0
+fi
+
+if [ "$DRY_RUN" = "1" ]; then
+  if [ "$REDUCTO" = "1" ]; then
+    echo "DRY-RUN: $f -> $out_desc (${size} bytes)"
+  else
+    out="${base}.${config_tag}.$(date +%s).txt"
+    echo "DRY-RUN: $f -> $out (${size} bytes)"
+  fi
+  exit 0
+fi
+
+# Reducto mode - no locking needed (output path is deterministic)
+if [ "$REDUCTO" = "1" ]; then
+  echo "Processing: $f -> $out_desc (${size} bytes)"
+  if [ -n "$REDUCTO_SCHEMA" ]; then
+    if REDUCTO_API_KEY="$REDUCTO_API_KEY" uvx --from reducto-cli reducto extract "$f" -s "$REDUCTO_SCHEMA"; then
+      echo "DONE: $f -> $out_desc"
+    else
+      rc=$?
+      echo "ERROR: $f (reducto extract failed: exit $rc)" >&2
+      exit "$rc"
+    fi
+  else
+    if REDUCTO_API_KEY="$REDUCTO_API_KEY" uvx --from reducto-cli reducto parse "$f"; then
+      echo "DONE: $f -> $out_desc"
+    else
+      rc=$?
+      echo "ERROR: $f (reducto parse failed: exit $rc)" >&2
+      exit "$rc"
+    fi
+  fi
+  exit 0
+fi
+
+# LLM mode - uses locking for non-deterministic output paths
+lockdir="${base}.${config_tag}.lock"
+waited=0
+while ! mkdir "$lockdir" 2>/dev/null; do
+  if [ -f "$lockdir/pid" ]; then
+    lock_pid=$(cat "$lockdir/pid" 2>/dev/null)
+    if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+      rm -rf "$lockdir" 2>/dev/null || true
+      continue
+    fi
+  fi
+
+  if [ "$FORCE" = "0" ]; then
+    existing="$(find_existing)"
+    if [ -n "$existing" ]; then
+      echo "SKIP: $f -> $existing (created by another worker)"
+      exit 0
+    fi
+  fi
+
+  waited=$((waited + 1))
+  if [ "$waited" -ge 300 ]; then
+    echo "ERROR: timeout waiting for lock: $lockdir" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "$$" > "$lockdir/pid"
+cleanup_lock() {
+  rm -rf "$lockdir" 2>/dev/null || true
+}
+trap cleanup_lock EXIT HUP INT TERM
+
+if [ "$FORCE" = "0" ]; then
+  existing="$(find_existing)"
+  if [ -n "$existing" ]; then
+    echo "SKIP: $f -> $existing (exists, non-empty)"
+    exit 0
+  fi
+fi
+
+out="${base}.${config_tag}.$(date +%s).txt"
+tmp_out="${out}.tmp.$$"
+
+echo "Processing: $f -> $out (${size} bytes)"
+if uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm -m "$MODEL" \
+   $LLM_OPTS \
+   "$PROMPT" \
+   -a "$f" > "$tmp_out"; then
+  mv "$tmp_out" "$out"
+  echo "DONE: $f -> $out"
+else
+  rc=$?
+  rm -f "$tmp_out"
+  echo "ERROR: $f (llm failed: exit $rc)" >&2
+  exit "$rc"
+fi
+WORKEREOF
+chmod +x "$WORKER"
+
+export FORCE LIMIT_MB MODEL PROMPT LLM_OPTS MODEL_TAG PROMPT_HASH OPTS_TAG EXCEPTS DRY_RUN MIN_GOOD_BYTES LLM_PLUGIN REDUCTO REDUCTO_SCHEMA REDUCTO_API_KEY
+
+# Pre-warm uvx cache to avoid parallel resolution contention
+if [ "$REDUCTO" = "1" ]; then
+  uvx --from reducto-cli reducto --help > /dev/null
+elif [ -n "$LLM_PLUGIN" ]; then
+  uvx --with "$LLM_PLUGIN" llm --version > /dev/null
+fi
+
+echo "Found $N_FILES files, processing with $PARALLEL parallel job(s)..."
+xargs -0 -P "$PARALLEL" -I {} "$WORKER" "{}" < "$FINAL_LIST"
