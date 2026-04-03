@@ -1,0 +1,375 @@
+#!/bin/sh
+# Split a PDF into individual pages
+# See also: llm-ocr (OCR for scanned pages via LLM)
+
+set -e
+
+usage() {
+  cat <<'EOF'
+Usage: pdf-split [OPTIONS] FILE.pdf|DIR
+
+Split a PDF into one file per page.
+
+Creates a directory named <basename>/ (next to the input file) and writes
+page_01.pdf, page_02.pdf, etc. inside it.
+
+Arguments:
+  FILE.pdf      split a single PDF
+  DIR           split all PDFs in that directory
+
+Options:
+  --outdir DIR  write pages to DIR instead of <basename>/
+  --duplex      split every 2 pages (1 sheet = 1 PDF for duplex prints)
+  --pdfa        convert output PDFs to PDF/A (requires ghostscript)
+  --png         output PNG images instead of PDF (requires pdftoppm)
+  --dpi N       resolution for PNG output (default: 300, implies --png)
+  --recursive   recurse into subdirectories (when DIR given)
+  --parallel N  run N files concurrently (default: 1)
+  --help        show this help
+
+Examples:
+  pdf-split document.pdf                  # -> document/page_01.pdf, ...
+  pdf-split --duplex document.pdf         # -> document/sheet_01.pdf (p1-2), ...
+  pdf-split --pdfa document.pdf            # -> document/page_01.pdf (PDF/A), ...
+  pdf-split --png document.pdf            # -> document/page_01.png, ... (300 dpi)
+  pdf-split --dpi 600 document.pdf        # -> document/page_01.png, ... (600 dpi)
+  pdf-split --outdir pages/ document.pdf  # -> pages/page_01.pdf, ...
+  pdf-split /path/to/dir/                 # all PDFs in dir
+  pdf-split --recursive /path/to/dir/     # all PDFs in dir and subdirs
+EOF
+  exit 0
+}
+
+OUTDIR=""
+TARGET=""
+PNG=0
+DPI=300
+DUPLEX=0
+PDFA=0
+RECURSIVE=0
+PARALLEL=1
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      ;;
+    --outdir)
+      if [ -z "$2" ]; then
+        echo "ERROR: --outdir requires an argument" >&2
+        exit 1
+      fi
+      OUTDIR="$2"
+      shift 2
+      ;;
+    --png)
+      PNG=1
+      shift
+      ;;
+    --dpi)
+      if [ -z "$2" ]; then
+        echo "ERROR: --dpi requires an argument" >&2
+        exit 1
+      fi
+      DPI="$2"
+      PNG=1
+      shift 2
+      ;;
+    --duplex)
+      DUPLEX=1
+      shift
+      ;;
+    --pdfa)
+      PDFA=1
+      shift
+      ;;
+    --recursive|-r)
+      RECURSIVE=1
+      shift
+      ;;
+    --parallel|-j)
+      if [ -z "$2" ]; then
+        echo "ERROR: --parallel requires a number" >&2
+        exit 1
+      fi
+      PARALLEL="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Try 'pdf-split --help' for usage." >&2
+      exit 1
+      ;;
+    *)
+      TARGET="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$TARGET" ]; then
+  echo "ERROR: no input file or directory specified" >&2
+  echo "Try 'pdf-split --help' for usage." >&2
+  exit 1
+fi
+
+if [ "$PDFA" = "1" ] && [ "$PNG" = "1" ]; then
+  echo "ERROR: --pdfa and --png cannot be combined" >&2
+  exit 1
+fi
+
+if [ "$PDFA" = "1" ]; then
+  if ! command -v gs >/dev/null 2>&1; then
+    echo "ERROR: ghostscript (gs) is required for PDF/A output. Install it with: brew install ghostscript" >&2
+    exit 1
+  fi
+fi
+
+convert_pdfa() {
+  infile="$1"
+  tmpfile="${infile}.pdfa.tmp"
+  gs -dPDFA -dBATCH -dNOPAUSE -dNOOUTERSAVE \
+    -sColorConversionStrategy=UseDeviceIndependentColor \
+    -sDEVICE=pdfwrite -dPDFACompatibilityPolicy=1 \
+    -sOutputFile="$tmpfile" "$infile" >/dev/null 2>&1
+  mv "$tmpfile" "$infile"
+}
+
+split_one() {
+  FILE="$1"
+  basename="$(basename "$FILE" .pdf)"
+  filedir="$(dirname "$FILE")"
+
+  if [ -n "$OUTDIR" ]; then
+    dir="$OUTDIR"
+  else
+    dir="${filedir}/${basename}"
+  fi
+
+  # Skip if already split (directory exists with page_01.* or sheet_01.*)
+  if [ -d "$dir" ]; then
+    if ls "$dir"/page_01.* >/dev/null 2>&1 || ls "$dir"/sheet_01.* >/dev/null 2>&1; then
+      echo "SKIP: $FILE (already split in $dir/)"
+      return 0
+    fi
+  fi
+
+  mkdir -p "$dir"
+
+  if [ "$PNG" = "1" ]; then
+    if ! command -v pdftoppm >/dev/null 2>&1; then
+      echo "ERROR: pdftoppm is required for PNG output. Install it with: apt install poppler-utils" >&2
+      return 1
+    fi
+    npages=$(qpdf --show-npages "$FILE" 2>/dev/null || echo 0)
+    if [ "$DUPLEX" = "1" ]; then
+      step=2
+      nsheets=$(( (npages + 1) / 2 ))
+      echo "Splitting: $FILE -> ${nsheets} sheets (${npages} pages, duplex) as PNG at ${DPI} dpi"
+    else
+      step=1
+      echo "Splitting: $FILE -> ${npages} pages as PNG at ${DPI} dpi"
+    fi
+    i=1
+    n=1
+    while [ "$i" -le "$npages" ]; do
+      last=$((i + step - 1))
+      [ "$last" -gt "$npages" ] && last="$npages"
+      if [ "$DUPLEX" = "1" ]; then
+        outname="$(printf 'sheet_%02d_%ddpi' "$n" "$DPI")"
+        printf "  %s.png (p%d-%d)\n" "$outname" "$i" "$last"
+      else
+        outname="$(printf 'page_%02d_%ddpi' "$i" "$DPI")"
+        printf "  %s.png (%d/%d)\n" "$outname" "$i" "$npages"
+      fi
+      pdftoppm -png -r "$DPI" -f "$i" -l "$last" -singlefile "$FILE" "${dir}/${outname}"
+      i=$((i + step))
+      n=$((n + 1))
+    done
+    if [ "$DUPLEX" = "1" ]; then
+      count=$(ls -1 "${dir}"/sheet_*_${DPI}dpi.png 2>/dev/null | wc -l)
+      echo "Done: $count sheets written to $dir/"
+    else
+      count=$(ls -1 "${dir}"/page_*_${DPI}dpi.png 2>/dev/null | wc -l)
+      echo "Done: $count pages written to $dir/"
+    fi
+  else
+    if ! command -v qpdf >/dev/null 2>&1; then
+      echo "ERROR: qpdf is required but not found. Install it with: apt install qpdf" >&2
+      return 1
+    fi
+    ext="${FILE##*.}"
+    npages=$(qpdf --show-npages "$FILE" 2>/dev/null || echo 0)
+    if [ "$DUPLEX" = "1" ]; then
+      step=2
+      nsheets=$(( (npages + 1) / 2 ))
+      echo "Splitting: $FILE -> ${nsheets} sheets (${npages} pages, duplex) as ${ext}"
+    else
+      step=1
+      echo "Splitting: $FILE -> ${npages} pages as ${ext}"
+    fi
+    i=1
+    n=1
+    while [ "$i" -le "$npages" ]; do
+      last=$((i + step - 1))
+      [ "$last" -gt "$npages" ] && last="$npages"
+      if [ "$DUPLEX" = "1" ]; then
+        outname="$(printf 'sheet_%02d.%s' "$n" "$ext")"
+        printf "  %s (p%d-%d)\n" "$outname" "$i" "$last"
+      else
+        outname="$(printf 'page_%02d.%s' "$i" "$ext")"
+        printf "  %s (%d/%d)\n" "$outname" "$i" "$npages"
+      fi
+      qpdf "$FILE" --pages "$FILE" "$i"-"$last" -- "${dir}/${outname}"
+      if [ "$PDFA" = "1" ]; then
+        convert_pdfa "${dir}/${outname}"
+      fi
+      i=$((i + step))
+      n=$((n + 1))
+    done
+    if [ "$DUPLEX" = "1" ]; then
+      count=$(ls -1 "${dir}"/sheet_*.${ext} 2>/dev/null | wc -l)
+      echo "Done: $count sheets written to $dir/"
+    else
+      count=$(ls -1 "${dir}"/page_*.${ext} 2>/dev/null | wc -l)
+      echo "Done: $count pages written to $dir/"
+    fi
+  fi
+}
+
+# Single file mode
+if [ -f "$TARGET" ]; then
+  split_one "$TARGET"
+  exit $?
+fi
+
+# Directory mode
+if [ ! -d "$TARGET" ]; then
+  echo "ERROR: not a file or directory: $TARGET" >&2
+  exit 1
+fi
+
+collect_pdfs() {
+  dir="$1"
+  for f in "$dir"/*.pdf; do
+    [ -f "$f" ] || continue
+    # Skip single-page outputs (page_01.pdf etc.)
+    case "$(basename "$f")" in
+      page_[0-9]*.pdf|sheet_[0-9]*.pdf) continue ;;
+    esac
+    echo "$f"
+  done
+  if [ "$RECURSIVE" = "1" ]; then
+    for d in "$dir"/*/; do
+      [ -d "$d" ] || continue
+      collect_pdfs "$d"
+    done
+  fi
+}
+
+FILE_LIST="$(collect_pdfs "$TARGET")"
+
+if [ -z "$FILE_LIST" ]; then
+  echo "No PDF files found in $TARGET"
+  exit 0
+fi
+
+N_FILES=$(echo "$FILE_LIST" | wc -l)
+echo "Found $N_FILES PDFs, processing with $PARALLEL parallel job(s)..."
+
+if [ "$PARALLEL" -le 1 ] 2>/dev/null; then
+  echo "$FILE_LIST" | while read -r f; do
+    split_one "$f"
+  done
+else
+  # Write worker script for xargs -P
+  WORKER=$(mktemp)
+  trap 'rm -f "$WORKER"' EXIT
+  # Export the function body into the worker
+  cat > "$WORKER" <<WORKEREOF
+#!/bin/sh
+FILE="\$1"
+OUTDIR="$OUTDIR"
+PNG="$PNG"
+DPI="$DPI"
+DUPLEX="$DUPLEX"
+PDFA="$PDFA"
+
+convert_pdfa() {
+  infile="\$1"
+  tmpfile="\${infile}.pdfa.tmp"
+  gs -dPDFA -dBATCH -dNOPAUSE -dNOOUTERSAVE \\
+    -sColorConversionStrategy=UseDeviceIndependentColor \\
+    -sDEVICE=pdfwrite -dPDFACompatibilityPolicy=1 \\
+    -sOutputFile="\$tmpfile" "\$infile" >/dev/null 2>&1
+  mv "\$tmpfile" "\$infile"
+}
+
+basename="\$(basename "\$FILE" .pdf)"
+filedir="\$(dirname "\$FILE")"
+
+if [ -n "\$OUTDIR" ]; then
+  dir="\$OUTDIR"
+else
+  dir="\${filedir}/\${basename}"
+fi
+
+if [ -d "\$dir" ]; then
+  if ls "\$dir"/page_01.* >/dev/null 2>&1 || ls "\$dir"/sheet_01.* >/dev/null 2>&1; then
+    echo "SKIP: \$FILE (already split in \$dir/)"
+    exit 0
+  fi
+fi
+
+mkdir -p "\$dir"
+
+if [ "\$DUPLEX" = "1" ]; then
+  step=2
+else
+  step=1
+fi
+
+if [ "\$PNG" = "1" ]; then
+  npages=\$(qpdf --show-npages "\$FILE" 2>/dev/null || echo 0)
+  echo "Splitting: \$FILE -> \${npages} pages as PNG at \${DPI} dpi"
+  i=1
+  n=1
+  while [ "\$i" -le "\$npages" ]; do
+    last=\$((i + step - 1))
+    [ "\$last" -gt "\$npages" ] && last="\$npages"
+    if [ "\$DUPLEX" = "1" ]; then
+      outname="\$(printf 'sheet_%02d_%ddpi' "\$n" "\$DPI")"
+    else
+      outname="\$(printf 'page_%02d_%ddpi' "\$i" "\$DPI")"
+    fi
+    pdftoppm -png -r "\$DPI" -f "\$i" -l "\$last" -singlefile "\$FILE" "\${dir}/\${outname}"
+    i=\$((i + step))
+    n=\$((n + 1))
+  done
+else
+  ext="\${FILE##*.}"
+  npages=\$(qpdf --show-npages "\$FILE" 2>/dev/null || echo 0)
+  echo "Splitting: \$FILE -> \${npages} pages as \${ext}"
+  i=1
+  n=1
+  while [ "\$i" -le "\$npages" ]; do
+    last=\$((i + step - 1))
+    [ "\$last" -gt "\$npages" ] && last="\$npages"
+    if [ "\$DUPLEX" = "1" ]; then
+      outname="\$(printf 'sheet_%02d.%s' "\$n" "\$ext")"
+    else
+      outname="\$(printf 'page_%02d.%s' "\$i" "\$ext")"
+    fi
+    qpdf "\$FILE" --pages "\$FILE" "\$i"-"\$last" -- "\${dir}/\${outname}"
+    if [ "\$PDFA" = "1" ]; then
+      convert_pdfa "\${dir}/\${outname}"
+    fi
+    i=\$((i + step))
+    n=\$((n + 1))
+  done
+fi
+echo "DONE: \$FILE (\${npages} pages)"
+WORKEREOF
+  chmod +x "$WORKER"
+  echo "$FILE_LIST" | xargs -P "$PARALLEL" -I {} "$WORKER" {}
+fi

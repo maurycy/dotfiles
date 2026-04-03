@@ -1,0 +1,606 @@
+#!/bin/sh
+# pdf-sig - show electronic signature details for PDF documents
+# Handles both XAdES (detached .XAdES file) and PAdES (embedded PDF signatures)
+
+set -e
+
+usage() {
+  cat <<'EOF'
+Usage: pdf-sig [OPTIONS] FILE [FILE ...]
+
+Show electronic signature details for PDF documents.
+
+Supports:
+  - XAdES: detached XML signature (.XAdES file next to .PDF)
+  - PAdES: signatures embedded inside a PDF
+
+Arguments:
+  FILE    one or more PDF files or .XAdES files
+
+Options:
+  --json      output as JSON
+  --verify    verify file integrity (check digest)
+  --help      show this help
+
+Examples:
+  pdf-sig document.pdf              # auto-detect .XAdES companion
+  pdf-sig document.pdf.XAdES        # parse XAdES directly
+  pdf-sig --verify document.pdf     # also verify file digest
+  pdf-sig --json document.pdf       # JSON output
+EOF
+  exit 0
+}
+
+JSON=0
+VERIFY=0
+FILES=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      ;;
+    --json)
+      JSON=1
+      shift
+      ;;
+    --verify)
+      VERIFY=1
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Try 'pdf-sig --help' for usage." >&2
+      exit 1
+      ;;
+    *)
+      FILES="$FILES
+$1"
+      shift
+      ;;
+  esac
+done
+
+FILES="$(echo "$FILES" | sed '/^$/d')"
+
+if [ -z "$FILES" ]; then
+  echo "ERROR: no input files specified" >&2
+  echo "Try 'pdf-sig --help' for usage." >&2
+  exit 1
+fi
+
+# Collect all file args into a temp file for safe passing to Python
+ARGS_FILE=$(mktemp)
+trap 'rm -f "$ARGS_FILE"' EXIT HUP INT TERM
+echo "$FILES" > "$ARGS_FILE"
+
+exec uv run --python 3.13 --with lxml --with pyhanko python3 - "$JSON" "$VERIFY" "$ARGS_FILE" <<'PYEOF'
+import sys
+import os
+import base64
+import hashlib
+import json
+import subprocess
+import tempfile
+import urllib.parse
+from pathlib import Path
+
+from lxml import etree
+
+JSON_MODE = sys.argv[1] == "1"
+VERIFY = sys.argv[2] == "1"
+ARGS_FILE = sys.argv[3]
+
+with open(ARGS_FILE) as f:
+    files = [line.strip() for line in f if line.strip()]
+
+NS_DS = "http://www.w3.org/2000/09/xmldsig#"
+NS_XADES_VERSIONS = [
+    "http://uri.etsi.org/01903/v1.3.2#",
+    "http://uri.etsi.org/01903/v1.4.1#",
+    "http://uri.etsi.org/01903/v1.1.1#",
+]
+
+
+def xpath(tree, expr, namespaces):
+    """Try xpath with multiple xades namespace versions."""
+    result = tree.xpath(expr, namespaces=namespaces)
+    if result:
+        return result
+    return []
+
+
+def parse_cert_with_openssl(cert_der):
+    """Parse a DER certificate using openssl, return dict of fields."""
+    with tempfile.NamedTemporaryFile(suffix=".der", delete=False) as f:
+        f.write(cert_der)
+        f.flush()
+        try:
+            r = subprocess.run(
+                ["openssl", "x509", "-inform", "DER", "-in", f.name,
+                 "-text", "-noout"],
+                capture_output=True, text=True, timeout=10
+            )
+            text = r.stdout
+        finally:
+            os.unlink(f.name)
+
+    info = {}
+
+    # Parse subject line
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("Subject:"):
+            info["subject_raw"] = line[len("Subject:"):].strip()
+        elif line.startswith("Issuer:"):
+            info["issuer_raw"] = line[len("Issuer:"):].strip()
+        elif line.startswith("Not Before:"):
+            info["not_before"] = line[len("Not Before:"):].strip()
+        elif line.startswith("Not After"):
+            val = line.split(":", 1)
+            if len(val) > 1:
+                info["not_after"] = val[1].strip()
+        elif line.startswith("Serial Number:"):
+            # Next line(s) or same line
+            val = line[len("Serial Number:"):].strip()
+            if val:
+                info["serial"] = val
+        elif line.startswith("Signature Algorithm:") and "signature_algorithm" not in info:
+            info["signature_algorithm"] = line[len("Signature Algorithm:"):].strip()
+        elif line.startswith("Public-Key:"):
+            info["key_size"] = line[len("Public-Key:"):].strip()
+        elif line.startswith("Public Key Algorithm:"):
+            info["key_algorithm"] = line[len("Public Key Algorithm:"):].strip()
+
+    # Parse serial from hex dump (multiline)
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if "Serial Number:" in line:
+            val = line.split("Serial Number:", 1)[1].strip()
+            if val:
+                info["serial"] = val
+            elif i + 1 < len(lines):
+                info["serial"] = lines[i + 1].strip()
+            break
+
+    # Parse key usage
+    in_key_usage = False
+    for line in lines:
+        stripped = line.strip()
+        if "X509v3 Key Usage:" in stripped:
+            in_key_usage = True
+            continue
+        if in_key_usage:
+            info["key_usage"] = stripped
+            in_key_usage = False
+
+    # Parse subject fields
+    subject = info.get("subject_raw", "")
+    info["subject"] = parse_dn(subject)
+
+    issuer = info.get("issuer_raw", "")
+    info["issuer"] = parse_dn(issuer)
+
+    # Parse certificate policies
+    in_policies = False
+    policies = []
+    for line in lines:
+        stripped = line.strip()
+        if "X509v3 Certificate Policies:" in stripped:
+            in_policies = True
+            continue
+        if in_policies:
+            if stripped.startswith("Policy:"):
+                policies.append(stripped[len("Policy:"):].strip())
+            elif stripped.startswith("User Notice:") or stripped.startswith("Explicit Text:"):
+                policies.append(stripped)
+            elif stripped.startswith("CPS:"):
+                policies.append(stripped)
+            elif not stripped.startswith(("X509v3", "Authority", "qc")):
+                if stripped and not stripped.startswith("0"):
+                    policies.append(stripped)
+            else:
+                in_policies = False
+
+    if policies:
+        info["policies"] = policies
+
+    # Parse qcStatements (qualified certificate)
+    info["qualified"] = "qcStatements" in text
+
+    # Remove raw fields (parsed versions are in subject/issuer dicts)
+    info.pop("subject_raw", None)
+    info.pop("issuer_raw", None)
+
+    return info, text
+
+
+def decode_der_hex(hex_str):
+    """Decode a DER hex value (e.g. postalAddress) into readable text."""
+    try:
+        data = bytes.fromhex(hex_str)
+        # Check if it's a SEQUENCE (0x30) of UTF8Strings (0x0C)
+        if not data or data[0] != 0x30:
+            return None
+        i = 2  # skip SEQUENCE tag + length
+        parts = []
+        while i < len(data):
+            tag = data[i]
+            length = data[i + 1]
+            value = data[i + 2 : i + 2 + length]
+            parts.append(value.decode("utf-8"))
+            i += 2 + length
+        return ", ".join(parts) if parts else None
+    except Exception:
+        return None
+
+
+def parse_dn(dn_string):
+    """Parse an OpenSSL distinguished name string into a dict."""
+    fields = {}
+    if not dn_string:
+        return fields
+
+    # OpenSSL uses comma-space separation, but values can contain commas
+    # Use a simple state machine
+    parts = []
+    current = ""
+    for char in dn_string:
+        if char == "," and "=" in current:
+            # Check if next non-space char starts a new key=value
+            parts.append(current.strip())
+            current = ""
+        else:
+            current += char
+    if current.strip():
+        parts.append(current.strip())
+
+    for part in parts:
+        if "=" not in part:
+            continue
+        key, _, value = part.partition("=")
+        key = key.strip()
+        value = value.strip()
+
+        # Decode hex-encoded ASN.1 values (openssl outputs these for
+        # structured attributes like postalAddress)
+        if value.startswith("#"):
+            decoded = decode_der_hex(value[1:])
+            if decoded:
+                value = decoded
+
+        # Map OpenSSL short names to readable names
+        name_map = {
+            "C": "country",
+            "O": "organization",
+            "OU": "organizational_unit",
+            "CN": "common_name",
+            "GN": "given_name",
+            "SN": "surname",
+            "serialNumber": "serial_number",
+            "organizationIdentifier": "organization_id",
+            "postalAddress": "postal_address",
+        }
+        readable = name_map.get(key, key)
+        fields[readable] = value
+
+    return fields
+
+
+def compute_sha256(filepath):
+    """Compute SHA-256 digest of a file, return base64."""
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return base64.b64encode(h.digest()).decode()
+
+
+def parse_xades(xades_path, pdf_path=None):
+    """Parse a XAdES signature file and return signature details."""
+    tree = etree.parse(xades_path)
+
+    # Detect xades namespace version
+    xades_ns = None
+    for ns_ver in NS_XADES_VERSIONS:
+        if tree.xpath("//*[namespace-uri()=$ns]", ns=ns_ver):
+            xades_ns = ns_ver
+            break
+    if not xades_ns:
+        xades_ns = NS_XADES_VERSIONS[0]
+
+    ns = {"ds": NS_DS, "xades": xades_ns}
+
+    signatures = []
+
+    sig_nodes = tree.xpath("//ds:Signature", namespaces=ns)
+    for sig_node in sig_nodes:
+        sig_info = {
+            "type": "XAdES",
+            "source": str(xades_path),
+        }
+
+        # Signing time
+        signing_time = sig_node.xpath(
+            ".//xades:SigningTime/text()", namespaces=ns
+        )
+        if signing_time:
+            sig_info["signing_time"] = signing_time[0]
+
+        # Signature algorithm
+        sig_method = sig_node.xpath(
+            ".//ds:SignedInfo/ds:SignatureMethod/@Algorithm", namespaces=ns
+        )
+        if sig_method:
+            alg = sig_method[0]
+            # Simplify algorithm URIs
+            alg_map = {
+                "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256": "RSA-SHA256",
+                "http://www.w3.org/2001/04/xmldsig-more#rsa-sha384": "RSA-SHA384",
+                "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512": "RSA-SHA512",
+                "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256": "ECDSA-SHA256",
+                "http://www.w3.org/2000/09/xmldsig#rsa-sha1": "RSA-SHA1",
+            }
+            sig_info["signature_algorithm"] = alg_map.get(alg, alg)
+
+        # References (document digests)
+        refs = sig_node.xpath(
+            ".//ds:SignedInfo/ds:Reference", namespaces=ns
+        )
+        doc_refs = []
+        for ref in refs:
+            uri = ref.get("URI", "")
+            ref_type = ref.get("Type", "")
+            # Skip SignedProperties reference
+            if "SignedProperties" in ref_type:
+                continue
+
+            digest_method = ref.xpath(
+                "ds:DigestMethod/@Algorithm", namespaces=ns
+            )
+            digest_value = ref.xpath(
+                "ds:DigestValue/text()", namespaces=ns
+            )
+
+            dm = digest_method[0] if digest_method else ""
+            dm_map = {
+                "http://www.w3.org/2001/04/xmlenc#sha256": "SHA-256",
+                "http://www.w3.org/2001/04/xmlenc#sha384": "SHA-384",
+                "http://www.w3.org/2001/04/xmlenc#sha512": "SHA-512",
+                "http://www.w3.org/2000/09/xmldsig#sha1": "SHA-1",
+            }
+
+            ref_info = {
+                "uri": urllib.parse.unquote(uri),
+                "digest_algorithm": dm_map.get(dm, dm),
+                "digest_value": digest_value[0] if digest_value else "",
+            }
+
+            # Verify integrity if requested
+            if VERIFY and pdf_path and uri:
+                decoded_uri = urllib.parse.unquote(uri)
+                # Try to find the referenced file
+                ref_file = Path(xades_path).parent / decoded_uri
+                if ref_file.exists():
+                    computed = compute_sha256(str(ref_file))
+                    expected = ref_info["digest_value"]
+                    ref_info["integrity"] = "OK" if computed == expected else "MISMATCH"
+                    if computed != expected:
+                        ref_info["computed_digest"] = computed
+                else:
+                    ref_info["integrity"] = "file not found"
+
+            doc_refs.append(ref_info)
+
+        if doc_refs:
+            sig_info["references"] = doc_refs
+
+        # Certificate
+        cert_b64_nodes = sig_node.xpath(
+            ".//ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()",
+            namespaces=ns,
+        )
+        if cert_b64_nodes:
+            cert_der = base64.b64decode(cert_b64_nodes[0])
+            cert_info, cert_text = parse_cert_with_openssl(cert_der)
+            sig_info["certificate"] = cert_info
+
+        # Issuer serial from XAdES (may differ from cert)
+        issuer_serial = sig_node.xpath(
+            ".//xades:SigningCertificate//ds:X509SerialNumber/text()",
+            namespaces=ns,
+        )
+        if issuer_serial:
+            sig_info["xades_cert_serial"] = issuer_serial[0]
+
+        signatures.append(sig_info)
+
+    return signatures
+
+
+def parse_pades(pdf_path):
+    """Parse embedded PAdES signatures from a PDF."""
+    try:
+        from pyhanko.pdf_utils.reader import PdfFileReader
+    except ImportError:
+        return []
+
+    signatures = []
+
+    with open(pdf_path, "rb") as f:
+        reader = PdfFileReader(f)
+        try:
+            embedded = list(reader.embedded_signatures)
+        except Exception:
+            return []
+
+        for i, sig in enumerate(embedded):
+            sig_info = {
+                "type": "PAdES",
+                "source": str(pdf_path),
+                "field_name": sig.field_name,
+            }
+
+            try:
+                signer_cert = sig.signer_cert
+                if signer_cert:
+                    cert_der = signer_cert.dump()
+                    cert_info, _ = parse_cert_with_openssl(cert_der)
+                    sig_info["certificate"] = cert_info
+            except Exception:
+                pass
+
+            try:
+                if hasattr(sig, "self_reported_signed_timestamp"):
+                    ts = sig.self_reported_signed_timestamp
+                    if ts:
+                        sig_info["signing_time"] = ts.isoformat()
+            except Exception:
+                pass
+
+            try:
+                sd = sig.signed_data
+                if sd and hasattr(sd, "hash_algo"):
+                    sig_info["digest_algorithm"] = sd["digest_algorithms"][0]["algorithm"].native
+            except Exception:
+                pass
+
+            signatures.append(sig_info)
+
+    return signatures
+
+
+def format_signature(sig, index=None):
+    """Format a signature dict for human-readable output."""
+    lines = []
+    prefix = f"Signature #{index}" if index is not None else "Signature"
+
+    lines.append(f"--- {prefix} ({sig['type']}) ---")
+    lines.append("")
+
+    if "signing_time" in sig:
+        lines.append(f"  Signing time:  {sig['signing_time']}")
+
+    if "signature_algorithm" in sig:
+        lines.append(f"  Algorithm:     {sig['signature_algorithm']}")
+
+    cert = sig.get("certificate", {})
+    subj = cert.get("subject", {})
+    if subj:
+        lines.append("")
+        lines.append("  Signer:")
+        field_order = [
+            ("common_name", "Name"),
+            ("given_name", "Given name"),
+            ("surname", "Surname"),
+            ("serial_number", "ID"),
+            ("organization", "Organization"),
+            ("organizational_unit", "Unit"),
+            ("country", "Country"),
+            ("postal_address", "Address"),
+        ]
+        for key, label in field_order:
+            if key in subj:
+                lines.append(f"    {label:20s} {subj[key]}")
+
+    if cert:
+        lines.append("")
+        lines.append("  Certificate:")
+        if "serial" in cert:
+            lines.append(f"    Serial:            {cert['serial']}")
+        if "not_before" in cert:
+            lines.append(f"    Valid from:        {cert['not_before']}")
+        if "not_after" in cert:
+            lines.append(f"    Valid until:       {cert['not_after']}")
+        if "key_algorithm" in cert:
+            key_info = cert["key_algorithm"]
+            if "key_size" in cert:
+                key_info += f" {cert['key_size']}"
+            lines.append(f"    Key:               {key_info}")
+        if "key_usage" in cert:
+            lines.append(f"    Key usage:         {cert['key_usage']}")
+        if cert.get("qualified"):
+            lines.append(f"    Qualified (eIDAS): yes")
+
+        issuer = cert.get("issuer", {})
+        if issuer:
+            issuer_parts = []
+            for key in ("common_name", "organization", "country"):
+                if key in issuer:
+                    issuer_parts.append(issuer[key])
+            if issuer_parts:
+                lines.append(f"    Issuer:            {', '.join(issuer_parts)}")
+
+    refs = sig.get("references", [])
+    if refs:
+        lines.append("")
+        lines.append("  Document reference:")
+        for ref in refs:
+            lines.append(f"    File:              {ref['uri']}")
+            lines.append(f"    Digest:            {ref['digest_algorithm']} = {ref['digest_value']}")
+            if "integrity" in ref:
+                lines.append(f"    Integrity:         {ref['integrity']}")
+                if "computed_digest" in ref:
+                    lines.append(f"    Computed:          {ref['computed_digest']}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def process_file(filepath):
+    """Process a single file and return list of signature dicts."""
+    p = Path(filepath)
+    all_sigs = []
+
+    if p.suffix.lower() == ".xades":
+        # Direct XAdES file
+        pdf_candidate = p.parent / p.stem  # Remove .XAdES to get PDF path
+        pdf_path = str(pdf_candidate) if pdf_candidate.exists() else None
+        sigs = parse_xades(str(p), pdf_path)
+        all_sigs.extend(sigs)
+
+    elif p.suffix.lower() == ".pdf":
+        # Check for companion XAdES file
+        xades_candidates = [
+            p.parent / (p.name + ".XAdES"),
+            p.parent / (p.name + ".xades"),
+            p.parent / (p.stem + ".XAdES"),
+            p.parent / (p.stem + ".xades"),
+        ]
+        for xades_path in xades_candidates:
+            if xades_path.exists():
+                sigs = parse_xades(str(xades_path), str(p))
+                all_sigs.extend(sigs)
+                break
+
+        # Check for embedded PAdES signatures
+        pades_sigs = parse_pades(str(p))
+        all_sigs.extend(pades_sigs)
+
+    else:
+        print(f"WARNING: unsupported file type: {p.name}", file=sys.stderr)
+
+    return all_sigs
+
+
+all_results = []
+
+for filepath in files:
+    sigs = process_file(filepath)
+    if not sigs:
+        if not JSON_MODE:
+            print(f"{filepath}: no signatures found")
+        all_results.append({"file": filepath, "signatures": []})
+        continue
+
+    if JSON_MODE:
+        all_results.append({"file": filepath, "signatures": sigs})
+    else:
+        print(f"File: {filepath}")
+        for i, sig in enumerate(sigs, 1):
+            print(format_signature(sig, i if len(sigs) > 1 else None))
+
+if JSON_MODE:
+    output = all_results if len(all_results) > 1 else all_results[0]
+    print(json.dumps(output, indent=2, ensure_ascii=False))
+PYEOF

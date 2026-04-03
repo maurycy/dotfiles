@@ -1,0 +1,763 @@
+#!/bin/sh
+# Rename files using LLM metadata extraction or simple normalization
+# See also: llm-ocr, llm-archive, pdf-split
+
+usage() {
+  cat <<'EOF'
+Usage: llm-rename [OPTIONS] FILE|DIR
+
+Rename files using LLM metadata extraction or simple normalization.
+
+Arguments:
+  FILE          rename a single file
+  DIR           rename all files in directory
+
+Options:
+  --90          simple 90s-style rename (lowercase, underscores, strip junk)
+  --dms         DMS archival rename: {YYYYMMDD}{HHMMSS}{mmm}_{Description}.{ext}
+  --model M     LLM model (default: gemini/gemini-3-flash-preview)
+  --pages N     number of PDF pages to send to LLM (default: 3)
+  --dry-run     show renames without executing
+  --interactive ask before each rename
+  --recursive   recurse into subdirectories
+  --parallel N  run N files concurrently (default: 1)
+  --help        show this help
+
+Default mode: metadata extraction via LLM for PDFs, 90s-style fallback for non-PDFs.
+--90 mode: pure filename normalization for all files, no LLM calls.
+--dms mode: archival naming for scanned documents. Date from LLM, time from
+  file mtime, description from LLM. Non-PDFs fall back to 90s-style.
+  --90 and --dms are mutually exclusive.
+
+Examples:
+  llm-rename document.pdf                  # LLM metadata rename
+  llm-rename --90 document.pdf             # simple normalization
+  llm-rename --dms document.pdf            # DMS archival rename
+  llm-rename --dry-run /path/to/dir/       # preview all renames
+  llm-rename --90 --recursive /path/to/dir/
+  llm-rename --parallel 4 /path/to/dir/    # LLM rename 4 at a time
+EOF
+  exit 0
+}
+
+MODE_90=0
+MODE_DMS=0
+MODEL="gemini/gemini-3-flash-preview"
+PAGES=3
+DRY_RUN=0
+INTERACTIVE=0
+RECURSIVE=0
+PARALLEL=1
+TARGET=""
+
+WORKER=""
+cleanup_tmp() {
+  [ -n "$WORKER" ] && rm -f "$WORKER"
+}
+trap cleanup_tmp EXIT HUP INT TERM
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --help|-h)
+      usage
+      ;;
+    --90)
+      MODE_90=1
+      shift
+      ;;
+    --dms)
+      MODE_DMS=1
+      shift
+      ;;
+    --model)
+      if [ -z "$2" ]; then
+        echo "ERROR: --model requires an argument" >&2
+        exit 1
+      fi
+      MODEL="$2"
+      shift 2
+      ;;
+    --pages)
+      if [ -z "$2" ]; then
+        echo "ERROR: --pages requires an argument" >&2
+        exit 1
+      fi
+      PAGES="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --interactive)
+      INTERACTIVE=1
+      shift
+      ;;
+    --recursive|-r)
+      RECURSIVE=1
+      shift
+      ;;
+    --parallel|-j)
+      if [ -z "$2" ]; then
+        echo "ERROR: --parallel requires a number" >&2
+        exit 1
+      fi
+      PARALLEL="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Try 'llm-rename --help' for usage." >&2
+      exit 1
+      ;;
+    *)
+      TARGET="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$TARGET" ]; then
+  echo "ERROR: no input file or directory specified" >&2
+  echo "Try 'llm-rename --help' for usage." >&2
+  exit 1
+fi
+
+# Validate mutually exclusive modes
+if [ "$MODE_90" = "1" ] && [ "$MODE_DMS" = "1" ]; then
+  echo "ERROR: --90 and --dms are mutually exclusive" >&2
+  exit 1
+fi
+
+# Validate --parallel
+case "$PARALLEL" in
+  ''|*[!0-9]*)
+    echo "ERROR: --parallel must be a positive integer" >&2
+    exit 1
+    ;;
+  0)
+    echo "ERROR: --parallel must be >= 1" >&2
+    exit 1
+    ;;
+esac
+
+# Check dependencies for metadata mode
+if [ "$MODE_90" = "0" ] || [ "$MODE_DMS" = "1" ]; then
+  for cmd in qpdf jq uvx; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      echo "ERROR: $cmd is required for metadata/DMS mode. Use --90 for simple renaming." >&2
+      exit 1
+    fi
+  done
+fi
+
+# Auto-detect LLM plugin from model prefix
+LLM_PLUGIN=""
+case "$MODEL" in
+  gemini/*) LLM_PLUGIN="llm-gemini" ;;
+esac
+
+METADATA_PROMPT='Extract only the following metadata from the document:
+1. Author(s): List all authors. If more than two, return the first author and indicate "et al."
+2. Title: The main title (ignore subtitles)
+3. Year: The publication year (4 digits)
+
+Respond in JSON format with these fields:
+{
+    "authors": ["lastname, firstname", ...] or ["lastname"],
+    "title": "string",
+    "year": "YYYY" (as string)
+}
+
+If you cannot determine any field with confidence, use null for that field.'
+
+DMS_PROMPT='Extract the following from this document for archival filing:
+1. Date: the document date (when it was issued, written, or sent), in ISO format YYYY-MM-DD
+2. Description: a concise 1-3 word summary for the filename. Use TitleCase words separated by underscores. Prefer: sender/institution name, document type, or subject. Examples: "Finanzamt_Vollstreckungsankundigung", "Mietvertrag_Wohnung", "Steuerbescheid", "Deutsche_Bank_Kontoauszug"
+
+Respond in JSON format:
+{
+    "date": "YYYY-MM-DD",
+    "description": "Sender_DocumentType"
+}
+
+If you cannot determine the date, use null. Description must always be provided.
+Use only ASCII letters and underscores in the description (no umlauts, accents, or special characters).'
+
+# 90s-style filename normalization (pure string manipulation)
+to_90s_style() {
+  name="$1"
+  ext=""
+
+  # Split extension
+  case "$name" in
+    *.*)
+      ext=".${name##*.}"
+      name="${name%.*}"
+      ;;
+  esac
+
+  # Remove libgen suffixes before lowercasing
+  name=$(printf '%s' "$name" | sed 's/_-_libgen\.li$//; s/ - libgen\.li$//')
+
+  # Lowercase, spaces to underscores, strip junk
+  name=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed 's/[[:space:]]/_/g; s/[^a-z0-9._-]/_/g; s/__*/_/g; s/^_//; s/_$//')
+  ext=$(printf '%s' "$ext" | tr 'A-Z' 'a-z')
+
+  printf '%s%s' "$name" "$ext"
+}
+
+# Check if file is a PDF using file(1)
+is_pdf() {
+  mime=$(file --mime-type -b "$1" 2>/dev/null)
+  [ "$mime" = "application/pdf" ]
+}
+
+# Get extension from MIME type
+ext_from_mime() {
+  mime=$(file --mime-type -b "$1" 2>/dev/null)
+  case "$mime" in
+    application/pdf) echo "pdf" ;;
+    text/plain) echo "txt" ;;
+    image/jpeg) echo "jpg" ;;
+    image/png) echo "png" ;;
+    application/msword) echo "doc" ;;
+    application/vnd.openxmlformats-officedocument.wordprocessingml.document) echo "docx" ;;
+    application/vnd.ms-excel) echo "xls" ;;
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet) echo "xlsx" ;;
+    application/epub+zip) echo "epub" ;;
+    application/zip) echo "zip" ;;
+    *)
+      # Fall back to file extension
+      orig_ext="${1##*.}"
+      if [ "$orig_ext" != "$1" ]; then
+        printf '%s' "$orig_ext" | tr 'A-Z' 'a-z'
+      else
+        echo "bin"
+      fi
+      ;;
+  esac
+}
+
+# Extract metadata from PDF via LLM
+get_metadata() {
+  f="$1"
+  tmpdir=$(mktemp -d)
+  tmppdf="${tmpdir}/excerpt.pdf"
+
+  # Extract first N pages with qpdf
+  npages=$(qpdf --show-npages "$f" 2>/dev/null || echo 0)
+  if [ "$npages" -eq 0 ]; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+  extract_pages="$PAGES"
+  [ "$extract_pages" -gt "$npages" ] && extract_pages="$npages"
+
+  qpdf "$f" --pages "$f" 1-"$extract_pages" -- "$tmppdf" 2>/dev/null
+  if [ ! -f "$tmppdf" ]; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  # Call LLM
+  result=$(uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm -m "$MODEL" \
+    -o json_object true \
+    "$METADATA_PROMPT" \
+    -a "$tmppdf" < /dev/null 2>/dev/null) || {
+    rm -rf "$tmpdir"
+    return 1
+  }
+
+  rm -rf "$tmpdir"
+
+  # Validate JSON
+  if ! printf '%s' "$result" | jq . >/dev/null 2>&1; then
+    return 1
+  fi
+
+  printf '%s' "$result"
+}
+
+# Extract DMS metadata from PDF via LLM
+get_dms_metadata() {
+  f="$1"
+  tmpdir=$(mktemp -d)
+  tmppdf="${tmpdir}/excerpt.pdf"
+
+  npages=$(qpdf --show-npages "$f" 2>/dev/null || echo 0)
+  if [ "$npages" -eq 0 ]; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+  extract_pages="$PAGES"
+  [ "$extract_pages" -gt "$npages" ] && extract_pages="$npages"
+
+  qpdf "$f" --pages "$f" 1-"$extract_pages" -- "$tmppdf" 2>/dev/null
+  if [ ! -f "$tmppdf" ]; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  result=$(uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm -m "$MODEL" \
+    -o json_object true \
+    "$DMS_PROMPT" \
+    -a "$tmppdf" < /dev/null 2>/dev/null) || {
+    rm -rf "$tmpdir"
+    return 1
+  }
+
+  rm -rf "$tmpdir"
+
+  if ! printf '%s' "$result" | jq . >/dev/null 2>&1; then
+    return 1
+  fi
+
+  printf '%s' "$result"
+}
+
+# Convert DMS metadata JSON to archival filename
+dms_to_filename() {
+  json="$1"
+  orig_file="$2"
+
+  ext=$(ext_from_mime "$orig_file")
+
+  # Extract fields
+  doc_date=$(printf '%s' "$json" | jq -r 'if .date == null then "" else .date end')
+  description=$(printf '%s' "$json" | jq -r 'if .description == null then "Unknown" else .description end')
+
+  # Get file mtime
+  mtime_epoch=$(stat -f %m "$orig_file" 2>/dev/null)
+  if [ -n "$mtime_epoch" ]; then
+    mtime_time=$(date -r "$mtime_epoch" '+%H%M%S')
+    # macOS stat does not provide sub-second precision
+    mtime_ms=$(awk 'BEGIN{srand(); printf "%03d", int(rand()*1000)}')
+  else
+    mtime_time="000000"
+    mtime_ms=$(awk 'BEGIN{srand(); printf "%03d", int(rand()*1000)}')
+  fi
+
+  # Build date portion: prefer LLM date, fall back to mtime
+  if printf '%s' "$doc_date" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+    date_part=$(printf '%s' "$doc_date" | tr -d '-')
+  elif [ -n "$mtime_epoch" ]; then
+    date_part=$(date -r "$mtime_epoch" '+%Y%m%d')
+  else
+    date_part="00000000"
+  fi
+
+  # Sanitize description: keep only alphanumeric and underscores, collapse multiple underscores
+  description=$(printf '%s' "$description" | sed 's/[^A-Za-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_$//')
+  [ -z "$description" ] && description="Unknown"
+
+  # Build filename: {YYYYMMDD}{HHMMSS}{mmm}_{Description}.{ext}
+  filename="${date_part}${mtime_time}${mtime_ms}_${description}.${ext}"
+
+  printf '%s' "$filename"
+}
+
+# Convert metadata JSON to standardized filename
+metadata_to_filename() {
+  json="$1"
+  orig_file="$2"
+
+  ext=$(ext_from_mime "$orig_file")
+
+  # Extract fields
+  authors_count=$(printf '%s' "$json" | jq -r 'if .authors == null then 0 elif (.authors | type) == "array" then (.authors | length) else 0 end')
+  title=$(printf '%s' "$json" | jq -r 'if .title == null then "unknown_title" else .title end')
+  year=$(printf '%s' "$json" | jq -r 'if .year == null then "unknown" else .year end')
+
+  # Process authors
+  if [ "$authors_count" -eq 0 ]; then
+    author_part="unknown"
+  elif [ "$authors_count" -eq 1 ]; then
+    # Single author: take last name (before comma, last word)
+    raw=$(printf '%s' "$json" | jq -r '.authors[0]')
+    # Split on comma, take first part, take last word
+    author_part=$(printf '%s' "$raw" | sed 's/,.*//' | awk '{print $NF}' | tr 'A-Z' 'a-z')
+    [ -z "$author_part" ] && author_part="unknown"
+  elif [ "$authors_count" -eq 2 ]; then
+    a1=$(printf '%s' "$json" | jq -r '.authors[0]' | sed 's/,.*//' | awk '{print $NF}' | tr 'A-Z' 'a-z')
+    a2=$(printf '%s' "$json" | jq -r '.authors[1]' | sed 's/,.*//' | awk '{print $NF}' | tr 'A-Z' 'a-z')
+    author_part="${a1}_${a2}"
+  else
+    # 3+ authors: first author et al
+    a1=$(printf '%s' "$json" | jq -r '.authors[0]' | sed 's/,.*//' | awk '{print $NF}' | tr 'A-Z' 'a-z')
+    [ -z "$a1" ] && a1="unknown"
+    author_part="${a1}_etal"
+  fi
+
+  # Process title
+  if [ "$title" != "unknown_title" ] && [ -n "$title" ]; then
+    # Remove leading articles, remove subtitle after colon
+    title_clean=$(printf '%s' "$title" | tr 'A-Z' 'a-z' | sed 's/^the  *//; s/^a  *//; s/^an  *//' | sed 's/:.*//')
+    # Extract first 4 words
+    title_part=$(printf '%s' "$title_clean" | awk '{for(i=1;i<=4&&i<=NF;i++) printf "%s_", $i}' | sed 's/_$//' | sed 's/[^a-z0-9_]//g')
+    [ -z "$title_part" ] && title_part="unknown_title"
+  else
+    title_part="unknown_title"
+  fi
+
+  # Build filename
+  if [ "$year" != "unknown" ] && [ -n "$year" ] && printf '%s' "$year" | grep -qE '^[0-9]{4}$'; then
+    filename="${author_part}_${title_part}_${year}.${ext}"
+  else
+    filename="${author_part}_${title_part}.${ext}"
+  fi
+
+  # Clean up multiple underscores, leading/trailing underscores
+  filename=$(printf '%s' "$filename" | sed 's/__*/_/g; s/^_//; s/_\./\./')
+
+  printf '%s' "$filename"
+}
+
+# Rename a single file
+rename_one() {
+  f="$1"
+  dir=$(dirname "$f")
+  old_name=$(basename "$f")
+
+  if [ "$MODE_DMS" = "1" ]; then
+    if is_pdf "$f"; then
+      json=$(get_dms_metadata "$f") || json=""
+      if [ -n "$json" ]; then
+        new_name=$(dms_to_filename "$json" "$f")
+      else
+        new_name=$(to_90s_style "$old_name")
+        echo "  (DMS metadata extraction failed, falling back to 90s style)" >&2
+      fi
+    else
+      new_name=$(to_90s_style "$old_name")
+    fi
+  elif [ "$MODE_90" = "1" ]; then
+    new_name=$(to_90s_style "$old_name")
+  elif is_pdf "$f"; then
+    json=$(get_metadata "$f") || json=""
+    if [ -n "$json" ]; then
+      new_name=$(metadata_to_filename "$json" "$f")
+    else
+      new_name=$(to_90s_style "$old_name")
+      echo "  (metadata extraction failed, falling back to 90s style)" >&2
+    fi
+  else
+    new_name=$(to_90s_style "$old_name")
+  fi
+
+  if [ "$old_name" = "$new_name" ]; then
+    echo "SKIP: $f (unchanged)"
+    return 0
+  fi
+
+  new_path="${dir}/${new_name}"
+  echo "Renaming: \"$f\" => \"$new_path\""
+
+  if [ "$DRY_RUN" = "1" ]; then
+    return 0
+  fi
+
+  if [ "$INTERACTIVE" = "1" ]; then
+    printf 'Proceed with rename? [y/N]: '
+    read -r confirm
+    case "$confirm" in
+      y|Y) ;;
+      *) echo "Skipped."; return 0 ;;
+    esac
+  fi
+
+  if [ -e "$new_path" ]; then
+    echo "ERROR: target already exists: $new_path, skipping." >&2
+    return 0
+  fi
+
+  mv "$f" "$new_path"
+  echo "Renamed successfully."
+}
+
+# Collect files in a directory
+collect_files() {
+  dir="$1"
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    echo "$f"
+  done
+  if [ "$RECURSIVE" = "1" ]; then
+    for d in "$dir"/*/; do
+      [ -d "$d" ] || continue
+      collect_files "$d"
+    done
+  fi
+}
+
+# Single file mode
+if [ -f "$TARGET" ]; then
+  rename_one "$TARGET"
+  exit $?
+fi
+
+# Directory mode
+if [ ! -d "$TARGET" ]; then
+  echo "ERROR: not a file or directory: $TARGET" >&2
+  exit 1
+fi
+
+FILE_LIST=$(collect_files "$TARGET")
+
+if [ -z "$FILE_LIST" ]; then
+  echo "No files found in $TARGET"
+  exit 0
+fi
+
+N_FILES=$(printf '%s\n' "$FILE_LIST" | wc -l | tr -d ' ')
+echo "Found $N_FILES files, processing with $PARALLEL parallel job(s)..."
+
+if [ "$PARALLEL" -le 1 ] 2>/dev/null; then
+  printf '%s\n' "$FILE_LIST" | while IFS= read -r f; do
+    rename_one "$f"
+  done
+else
+  # Build worker script for xargs -P
+  WORKER=$(mktemp)
+  cat > "$WORKER" <<WORKEREOF
+#!/bin/sh
+f="\$1"
+old_name=\$(basename "\$f")
+dir=\$(dirname "\$f")
+
+METADATA_PROMPT='$METADATA_PROMPT'
+DMS_PROMPT='$DMS_PROMPT'
+
+to_90s_style() {
+  name="\$1"
+  ext=""
+  case "\$name" in
+    *.*)
+      ext=".\${name##*.}"
+      name="\${name%.*}"
+      ;;
+  esac
+  name=\$(printf '%s' "\$name" | sed 's/_-_libgen\.li\$//; s/ - libgen\.li\$//')
+  name=\$(printf '%s' "\$name" | tr 'A-Z' 'a-z' | sed 's/[[:space:]]/_/g; s/[^a-z0-9._-]/_/g; s/__*/_/g; s/^_//; s/_\$//')
+  ext=\$(printf '%s' "\$ext" | tr 'A-Z' 'a-z')
+  printf '%s%s' "\$name" "\$ext"
+}
+
+is_pdf() {
+  mime=\$(file --mime-type -b "\$1" 2>/dev/null)
+  [ "\$mime" = "application/pdf" ]
+}
+
+ext_from_mime() {
+  mime=\$(file --mime-type -b "\$1" 2>/dev/null)
+  case "\$mime" in
+    application/pdf) echo "pdf" ;;
+    text/plain) echo "txt" ;;
+    image/jpeg) echo "jpg" ;;
+    image/png) echo "png" ;;
+    application/msword) echo "doc" ;;
+    application/vnd.openxmlformats-officedocument.wordprocessingml.document) echo "docx" ;;
+    application/vnd.ms-excel) echo "xls" ;;
+    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet) echo "xlsx" ;;
+    application/epub+zip) echo "epub" ;;
+    application/zip) echo "zip" ;;
+    *)
+      orig_ext="\${1##*.}"
+      if [ "\$orig_ext" != "\$1" ]; then
+        printf '%s' "\$orig_ext" | tr 'A-Z' 'a-z'
+      else
+        echo "bin"
+      fi
+      ;;
+  esac
+}
+
+get_metadata() {
+  f="\$1"
+  tmpdir=\$(mktemp -d)
+  tmppdf="\${tmpdir}/excerpt.pdf"
+  npages=\$(qpdf --show-npages "\$f" 2>/dev/null || echo 0)
+  if [ "\$npages" -eq 0 ]; then
+    rm -rf "\$tmpdir"
+    return 1
+  fi
+  extract_pages="$PAGES"
+  [ "\$extract_pages" -gt "\$npages" ] && extract_pages="\$npages"
+  qpdf "\$f" --pages "\$f" 1-"\$extract_pages" -- "\$tmppdf" 2>/dev/null
+  if [ ! -f "\$tmppdf" ]; then
+    rm -rf "\$tmpdir"
+    return 1
+  fi
+  result=\$(uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm -m "$MODEL" \
+    -o json_object true \
+    "\$METADATA_PROMPT" \
+    -a "\$tmppdf" 2>/dev/null) || {
+    rm -rf "\$tmpdir"
+    return 1
+  }
+  rm -rf "\$tmpdir"
+  if ! printf '%s' "\$result" | jq . >/dev/null 2>&1; then
+    return 1
+  fi
+  printf '%s' "\$result"
+}
+
+metadata_to_filename() {
+  json="\$1"
+  orig_file="\$2"
+  ext=\$(ext_from_mime "\$orig_file")
+  authors_count=\$(printf '%s' "\$json" | jq -r 'if .authors == null then 0 elif (.authors | type) == "array" then (.authors | length) else 0 end')
+  title=\$(printf '%s' "\$json" | jq -r 'if .title == null then "unknown_title" else .title end')
+  year=\$(printf '%s' "\$json" | jq -r 'if .year == null then "unknown" else .year end')
+  if [ "\$authors_count" -eq 0 ]; then
+    author_part="unknown"
+  elif [ "\$authors_count" -eq 1 ]; then
+    raw=\$(printf '%s' "\$json" | jq -r '.authors[0]')
+    author_part=\$(printf '%s' "\$raw" | sed 's/,.*//' | awk '{print \$NF}' | tr 'A-Z' 'a-z')
+    [ -z "\$author_part" ] && author_part="unknown"
+  elif [ "\$authors_count" -eq 2 ]; then
+    a1=\$(printf '%s' "\$json" | jq -r '.authors[0]' | sed 's/,.*//' | awk '{print \$NF}' | tr 'A-Z' 'a-z')
+    a2=\$(printf '%s' "\$json" | jq -r '.authors[1]' | sed 's/,.*//' | awk '{print \$NF}' | tr 'A-Z' 'a-z')
+    author_part="\${a1}_\${a2}"
+  else
+    a1=\$(printf '%s' "\$json" | jq -r '.authors[0]' | sed 's/,.*//' | awk '{print \$NF}' | tr 'A-Z' 'a-z')
+    [ -z "\$a1" ] && a1="unknown"
+    author_part="\${a1}_etal"
+  fi
+  if [ "\$title" != "unknown_title" ] && [ -n "\$title" ]; then
+    title_clean=\$(printf '%s' "\$title" | tr 'A-Z' 'a-z' | sed 's/^the  *//; s/^a  *//; s/^an  *//' | sed 's/:.*//')
+    title_part=\$(printf '%s' "\$title_clean" | awk '{for(i=1;i<=4&&i<=NF;i++) printf "%s_", \$i}' | sed 's/_\$//' | sed 's/[^a-z0-9_]//g')
+    [ -z "\$title_part" ] && title_part="unknown_title"
+  else
+    title_part="unknown_title"
+  fi
+  if [ "\$year" != "unknown" ] && [ -n "\$year" ] && printf '%s' "\$year" | grep -qE '^[0-9]{4}\$'; then
+    filename="\${author_part}_\${title_part}_\${year}.\${ext}"
+  else
+    filename="\${author_part}_\${title_part}.\${ext}"
+  fi
+  filename=\$(printf '%s' "\$filename" | sed 's/__*/_/g; s/^_//; s/_\./\./')
+  printf '%s' "\$filename"
+}
+
+get_dms_metadata() {
+  f="\$1"
+  tmpdir=\$(mktemp -d)
+  tmppdf="\${tmpdir}/excerpt.pdf"
+  npages=\$(qpdf --show-npages "\$f" 2>/dev/null || echo 0)
+  if [ "\$npages" -eq 0 ]; then
+    rm -rf "\$tmpdir"
+    return 1
+  fi
+  extract_pages="$PAGES"
+  [ "\$extract_pages" -gt "\$npages" ] && extract_pages="\$npages"
+  qpdf "\$f" --pages "\$f" 1-"\$extract_pages" -- "\$tmppdf" 2>/dev/null
+  if [ ! -f "\$tmppdf" ]; then
+    rm -rf "\$tmpdir"
+    return 1
+  fi
+  result=\$(uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm -m "$MODEL" \
+    -o json_object true \
+    "\$DMS_PROMPT" \
+    -a "\$tmppdf" 2>/dev/null) || {
+    rm -rf "\$tmpdir"
+    return 1
+  }
+  rm -rf "\$tmpdir"
+  if ! printf '%s' "\$result" | jq . >/dev/null 2>&1; then
+    return 1
+  fi
+  printf '%s' "\$result"
+}
+
+dms_to_filename() {
+  json="\$1"
+  orig_file="\$2"
+  ext=\$(ext_from_mime "\$orig_file")
+  doc_date=\$(printf '%s' "\$json" | jq -r 'if .date == null then "" else .date end')
+  description=\$(printf '%s' "\$json" | jq -r 'if .description == null then "Unknown" else .description end')
+  mtime_epoch=\$(stat -f %m "\$orig_file" 2>/dev/null)
+  if [ -n "\$mtime_epoch" ]; then
+    mtime_time=\$(date -r "\$mtime_epoch" '+%H%M%S')
+    mtime_ms=$(awk 'BEGIN{srand(); printf "%03d", int(rand()*1000)}')
+  else
+    mtime_time="000000"
+    mtime_ms=$(awk 'BEGIN{srand(); printf "%03d", int(rand()*1000)}')
+  fi
+  if printf '%s' "\$doc_date" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}\$'; then
+    date_part=\$(printf '%s' "\$doc_date" | tr -d '-')
+  elif [ -n "\$mtime_epoch" ]; then
+    date_part=\$(date -r "\$mtime_epoch" '+%Y%m%d')
+  else
+    date_part="00000000"
+  fi
+  description=\$(printf '%s' "\$description" | sed 's/[^A-Za-z0-9_]/_/g; s/__*/_/g; s/^_//; s/_\$//')
+  [ -z "\$description" ] && description="Unknown"
+  filename="\${date_part}\${mtime_time}\${mtime_ms}_\${description}.\${ext}"
+  printf '%s' "\$filename"
+}
+
+if [ "$MODE_DMS" = "1" ]; then
+  if is_pdf "\$f"; then
+    json=\$(get_dms_metadata "\$f") || json=""
+    if [ -n "\$json" ]; then
+      new_name=\$(dms_to_filename "\$json" "\$f")
+    else
+      new_name=\$(to_90s_style "\$old_name")
+      echo "  (DMS metadata extraction failed, falling back to 90s style)" >&2
+    fi
+  else
+    new_name=\$(to_90s_style "\$old_name")
+  fi
+elif [ "$MODE_90" = "1" ]; then
+  new_name=\$(to_90s_style "\$old_name")
+elif is_pdf "\$f"; then
+  json=\$(get_metadata "\$f") || json=""
+  if [ -n "\$json" ]; then
+    new_name=\$(metadata_to_filename "\$json" "\$f")
+  else
+    new_name=\$(to_90s_style "\$old_name")
+    echo "  (metadata extraction failed, falling back to 90s style)" >&2
+  fi
+else
+  new_name=\$(to_90s_style "\$old_name")
+fi
+
+if [ "\$old_name" = "\$new_name" ]; then
+  echo "SKIP: \$f (unchanged)"
+  exit 0
+fi
+
+new_path="\${dir}/\${new_name}"
+echo "Renaming: \"\$f\" => \"\$new_path\""
+
+if [ "$DRY_RUN" = "1" ]; then
+  exit 0
+fi
+
+if [ "$INTERACTIVE" = "1" ]; then
+  printf 'Proceed with rename? [y/N]: '
+  read -r confirm
+  case "\$confirm" in
+    y|Y) ;;
+    *) echo "Skipped."; exit 0 ;;
+  esac
+fi
+
+if [ -e "\$new_path" ]; then
+  echo "ERROR: target already exists: \$new_path, skipping." >&2
+  exit 0
+fi
+
+mv "\$f" "\$new_path"
+echo "Renamed successfully."
+WORKEREOF
+  chmod +x "$WORKER"
+
+  # Pre-warm uvx cache if using LLM
+  if { [ "$MODE_90" = "0" ] || [ "$MODE_DMS" = "1" ]; } && [ -n "$LLM_PLUGIN" ]; then
+    uvx --with "$LLM_PLUGIN" llm --version > /dev/null 2>&1
+  fi
+
+  printf '%s\n' "$FILE_LIST" | xargs -P "$PARALLEL" -I {} "$WORKER" {}
+fi

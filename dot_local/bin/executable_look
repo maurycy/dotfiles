@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# Usage:  look <src> <dst-dir>
+set -euo pipefail
+
+[[ $# -eq 2 ]] || { echo "Usage: $0 <src> <dst-dir>" >&2; exit 1; }
+SRC=$1
+DST=$2
+[[ -e "$SRC" ]] || { echo "Error: '$SRC' does not exist." >&2; exit 1; }
+[[ -d "$DST" ]] || { echo "Error: '$DST' is not a directory." >&2; exit 1; }
+
+# Pick an MD5 program
+if command -v md5sum >/dev/null 2>&1; then
+    md5() { md5sum "$1" | awk '{print $1}'; }
+elif command -v md5 >/dev/null 2>&1; then
+    md5() { command md5 -q "$1"; }
+else
+    echo "Error: need md5sum or md5 on PATH." >&2; exit 1
+fi
+
+# Build checksum→path list for DST
+declare -A DST_MAP
+while IFS= read -r -d '' f; do
+    sum=$(md5 "$f") || continue
+    DST_MAP["$sum"]+="$f"$'\n'        # keep newline between multiple matches
+done < <(find "$DST" -type f -print0)
+
+# Compare helper
+compare_one() {
+    local file=$1 sum
+    sum=$(md5 "$file") || return
+    if [[ -n "${DST_MAP[$sum]:-}" ]]; then
+        echo "✔ $(realpath "$file")  ➜  match(es):"
+        while IFS= read -r m; do         # <-- fixed: no word-splitting
+            printf '    %s\n' "$m"
+        done <<< "${DST_MAP[$sum]}"
+    else
+        echo "✘ $(realpath "$file")  — no match"
+    fi
+}
+
+# Walk src
+if [[ -f "$SRC" ]]; then
+    compare_one "$SRC"
+else
+    while IFS= read -r -d '' f; do
+        compare_one "$f"
+    done < <(find "$SRC" -type f -print0)
+fi

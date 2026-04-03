@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# --- Configuration ---
+# rsync options for a dry run, checksum-based comparison, itemized changes, and delete behavior
+# -n: dry run - show what would be done, but don't actually do it
+# -r: recurse into directories
+# -c: skip based on checksum, not mod-time & size
+# -i: itemize changes
+# --delete: consider files for deletion
+OPTIONS="-nrci --delete"
+
+# --- Functions ---
+
+# Function to run rsync and capture its output
+run_rsync() {
+  local source_dir="$1"
+  local dest_dir="$2"
+  echo "🔄 Comparing $source_dir to $dest_dir..."
+  rsync $OPTIONS "$source_dir" "$dest_dir"
+}
+
+# --- Main Script ---
+
+# Check if two arguments are provided
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <directory1> <directory2>"
+  echo "Example: $0 api/ devops/"
+  exit 1
+fi
+
+DIR1="$1/" # Add trailing slash for rsync to treat it as directory content
+DIR2="$2/" # Add trailing slash
+
+# Check if the provided arguments are directories
+if [ ! -d "$DIR1" ]; then
+  echo "Error: '$DIR1' is not a directory or does not exist."
+  exit 1
+fi
+
+if [ ! -d "$DIR2" ]; then
+  echo "Error: '$DIR2' is not a directory or does not exist."
+  exit 1
+fi
+
+echo "🔍 Starting bidirectional directory comparison (dry run)..."
+echo "Directory 1: $DIR1"
+echo "Directory 2: $DIR2"
+echo "--------------------------------------------------"
+
+# Run rsync from DIR1 to DIR2
+output_d1_to_d2=$(run_rsync "$DIR1" "$DIR2")
+echo "--------------------------------------------------"
+
+# Run rsync from DIR2 to DIR1
+output_d2_to_d1=$(run_rsync "$DIR2" "$DIR1")
+echo "--------------------------------------------------"
+
+# Check if there are any differences
+if [ -z "$output_d1_to_d2" ] && [ -z "$output_d2_to_d1" ]; then
+  echo "✅ SUCCESS: No differences found between '$DIR1' and '$DIR2'."
+else
+  echo "⚠️  DIFFERENCES FOUND:"
+  if [ -n "$output_d1_to_d2" ]; then
+    echo -e "\n--- Changes if syncing $DIR1 to $DIR2 ---"
+    echo "$output_d1_to_d2"
+  fi
+  if [ -n "$output_d2_to_d1" ]; then
+    echo -e "\n--- Changes if syncing $DIR2 to $DIR1 ---"
+    echo "$output_d2_to_d1"
+  fi
+  echo -e "\n--------------------------------------------------"
+  echo "ℹ️  Review the output above to see the potential changes."
+fi
+
+echo "🏁 Comparison complete."

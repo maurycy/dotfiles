@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# A simple script to clone all public repositories for a given GitHub username
+# using the GitHub CLI (`gh`).
+#
+# Prerequisites:
+# 1. Install the GitHub CLI: https://cli.github.com/
+# 2. Authenticate with the CLI: `gh auth login`
+# 3. Ensure `git` is installed and configured.
+#
+# Usage:
+# 1. Make the script executable: chmod +x gh-clone-all
+# 2. Run it with a GitHub username as the first argument: gh-clone-all <username>
+#
+# Example: gh-clone-all torvalds
+
+# Check if a username is provided as an argument
+if [ -z "$1" ]; then
+  echo "Usage: $0 <username>"
+  echo "Please provide a GitHub username."
+  exit 1
+fi
+
+USERNAME=$1
+# Set a high limit to fetch all repositories. Increase if the user has more than 1000.
+LIMIT=1000
+
+echo "Fetching repositories for user: $USERNAME"
+echo "-------------------------------------------"
+
+# Create a directory for the user's repositories if it doesn't exist
+if [ ! -d "$USERNAME" ]; then
+  echo "Creating directory to clone repositories into: $USERNAME"
+  mkdir "$USERNAME"
+fi
+
+# Change into the user's directory before cloning
+cd "$USERNAME" || exit
+
+# Use 'gh repo list' to get the repository names
+# Then loop through each name and clone the repository using 'gh repo clone'
+gh repo list "$USERNAME" --limit "$LIMIT" --json name -q '.[].name' | while read -r repo_name; do
+  if [ -d "$repo_name" ]; then
+    echo "Directory '$repo_name' already exists, skipping clone."
+  else
+    echo "Cloning $USERNAME/$repo_name..."
+    gh repo clone "$USERNAME/$repo_name"
+  fi
+  echo "-------------------------------------------"
+done
+
+echo "Done."
+echo "All repositories have been cloned into the '$USERNAME' directory."
+
+
