@@ -147,3 +147,17 @@
 	dm = delete-merged
 	delete-all-branches = "!f() { git fetch -p && git branch | grep -v \"^*\" | grep -v 'master' | grep -v 'main' | grep -v 'staging' | xargs -n 1 git branch -D; }; f"
 	dab = delete-all-branches
+
+	# codebase recon - https://piechowski.io/post/git-commands-before-reading-code
+	churn = "!git log --format=format: --name-only --since='1 year ago' | sort | uniq -c | sort -nr | head -20"
+	bus-factor = shortlog -sn --no-merges
+	bus-factor-recent = shortlog -sn --no-merges --since='6 months ago'
+	bug-hotspots = "!git log -i -E --grep='fix|bug|broken' --name-only --format='' | sort | uniq -c | sort -nr | head -20"
+	velocity = "!git log --format='%ad' --date=format:'%Y-%m' | sort | uniq -c"
+	firefighting = "!git log --oneline --since='1 year ago' | grep -iE 'revert|hotfix|emergency|rollback'"
+
+	# codebase recon - coupling & health
+	coupling = "!git log --format=format: --name-only --since='1 year ago' | awk 'BEGIN{RS=\"\\n\\n\"; FS=\"\\n\"} NF>1{for(i=1;i<=NF;i++) for(j=i+1;j<=NF;j++) if($i!=\"\" && $j!=\"\") print ($i<$j ? $i\" \"$j : $j\" \"$i)}' | sort | uniq -c | sort -nr | head -20"
+	diffusion = "!git log --format='%aN' --name-only --since='1 year ago' --no-merges | awk 'NF==0{author=\"\"} NF==1 && author==\"\"{author=$0} NF>=1 && author!=\"\"{print author\"\\t\"$0; author=\"\"}' | sort -u | cut -f2 | sort | uniq -c | sort -nr | head -20"
+	commit-sizes = "!git log --shortstat --no-merges --since='1 year ago' | awk '/files? changed/{ins=$4+0; del=$6+0; print ins+del}' | sort -n | awk '{a[NR]=$1; s+=$1} END{print \"commits: \"NR; print \"mean: \"int(s/NR); print \"median: \"a[int(NR/2)]; print \"p90: \"a[int(NR*0.9)]; print \"max: \"a[NR]}'"
+	when = "!git log --format='%ad' --date=format:'%u' --since='1 year ago' | sort | uniq -c | awk '{d[1]=\"Mon\"; d[2]=\"Tue\"; d[3]=\"Wed\"; d[4]=\"Thu\"; d[5]=\"Fri\"; d[6]=\"Sat\"; d[7]=\"Sun\"; print d[$2]\": \"$1}'"
