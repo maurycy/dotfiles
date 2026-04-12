@@ -10,6 +10,7 @@ LLM_MODEL="gemini/gemini-flash-lite-latest"
 LLM_PLUGIN="llm-gemini"
 DRY_RUN="false"
 GLOB_PATTERNS=""
+MANUAL_DATE=""
 
 # Temp files for state (needed for subshell communication in POSIX sh)
 STATE_DIR=""
@@ -32,19 +33,25 @@ usage() {
 	cat <<EOF
 llm-archive: archive documents by date using LLM vision
 
-Usage: llm-archive [options] [directory]
+Usage: llm-archive [options] [directory|file...]
 
 Options:
+    -d, --date DATE  Use this date (YYYY-MM-DD) instead of calling LLM
+    -D, --dest DIR   Destination base directory (default: \$LLM_ARCHIVE_DEST or ~/Documents/Scans)
     -g, --glob PAT   File pattern to match (repeatable, default: *.pdf *.jpg *.jpeg *.png)
     -n, --dry-run    Show what would be done without making changes
     -h, --help       Show this help
 
 Arguments:
     directory        Directory to scan (default: current directory)
+    file...          One or more files to archive directly
 
 Examples:
     llm-archive -g "*.pdf" ~/scans
     llm-archive -g "*.jpg" -g "*.png" .
+    llm-archive ~/scans/invoice.pdf
+    llm-archive -d 2024-03-15 ~/scans/invoice.pdf
+    llm-archive -D ~/Archive -d 2024-03-15 ~/scans/invoice.pdf
 EOF
 	exit 0
 }
@@ -165,7 +172,11 @@ process_file() {
 	file="$1"
 	basename=$(basename "${file}")
 
-	date_str=$(extract_date "${file}")
+	if [ -n "${MANUAL_DATE}" ]; then
+		date_str="${MANUAL_DATE}"
+	else
+		date_str=$(extract_date "${file}")
+	fi
 
 	if is_valid_date "${date_str}"; then
 		dest=$(compute_dest "${date_str}")
@@ -225,9 +236,23 @@ print_summary() {
 
 main() {
 	# Parse arguments
-	dir="."
+	POSITIONALS=""
 	while [ $# -gt 0 ]; do
 		case "$1" in
+			-d|--date)
+				shift
+				MANUAL_DATE="$1"
+				if ! is_valid_date "${MANUAL_DATE}"; then
+					log_err "invalid date format: ${MANUAL_DATE} (expected YYYY-MM-DD)"
+					exit 1
+				fi
+				shift
+				;;
+			-D|--dest)
+				shift
+				DEST_BASE="$1"
+				shift
+				;;
 			-g|--glob)
 				shift
 				GLOB_PATTERNS="${GLOB_PATTERNS}${GLOB_PATTERNS:+ }$1"
@@ -245,26 +270,12 @@ main() {
 				usage
 				;;
 			*)
-				dir="$1"
+				POSITIONALS="${POSITIONALS}${POSITIONALS:+
+}$1"
 				shift
 				;;
 		esac
 	done
-
-	# Validate directory
-	if [ ! -d "${dir}" ]; then
-		log_err "directory not found: ${dir}"
-		exit 1
-	fi
-
-	# Check dependencies
-	if ! is_command uvx; then
-		log_err "uvx is not installed - see https://docs.astral.sh/uv/"
-		exit 1
-	fi
-
-	# Ensure gemini models are available
-	ensure_gemini_models
 
 	# Initialize state tracking
 	init_state
@@ -273,23 +284,78 @@ main() {
 		log_info "dry run mode - no files will be copied"
 	fi
 
-	# Default glob patterns if none specified
-	if [ -z "${GLOB_PATTERNS}" ]; then
-		GLOB_PATTERNS="*.pdf *.jpg *.jpeg *.png"
+	# Only need LLM when no manual date is provided
+	if [ -z "${MANUAL_DATE}" ]; then
+		if ! is_command uvx; then
+			log_err "uvx is not installed - see https://docs.astral.sh/uv/"
+			exit 1
+		fi
+		ensure_gemini_models
 	fi
 
-	# Build find command via positional parameters (no eval)
-	set -- find "${dir}" -type f "("
-	first=true
-	for pat in ${GLOB_PATTERNS}; do
-		[ "${first}" = true ] && first=false || set -- "$@" -o
-		set -- "$@" -iname "${pat}"
+	# Determine if positional args are files, a directory, or default
+	files=""
+	dir=""
+	OLD_IFS="${IFS}"
+	IFS='
+'
+	for arg in ${POSITIONALS}; do
+		if [ -f "${arg}" ]; then
+			files="${files}${files:+
+}${arg}"
+		elif [ -d "${arg}" ]; then
+			if [ -n "${dir}" ]; then
+				log_err "multiple directories not supported"
+				exit 1
+			fi
+			dir="${arg}"
+		else
+			log_err "not a file or directory: ${arg}"
+			exit 1
+		fi
 	done
-	set -- "$@" ")" -print0
+	IFS="${OLD_IFS}"
 
-	"$@" | while IFS= read -r -d '' file; do
-		process_file "${file}" || log_err "failed to process: ${file}"
-	done || true
+	if [ -n "${files}" ] && [ -n "${dir}" ]; then
+		log_err "cannot mix files and directories as arguments"
+		exit 1
+	fi
+
+	if [ -n "${files}" ]; then
+		# Process explicit files
+		IFS='
+'
+		for file in ${files}; do
+			process_file "${file}" || log_err "failed to process: ${file}"
+		done
+		IFS="${OLD_IFS}"
+	else
+		# Directory mode
+		[ -z "${dir}" ] && dir="."
+
+		if [ ! -d "${dir}" ]; then
+			log_err "directory not found: ${dir}"
+			exit 1
+		fi
+
+		# Default glob patterns if none specified
+		if [ -z "${GLOB_PATTERNS}" ]; then
+			GLOB_PATTERNS="*.pdf *.jpg *.jpeg *.png"
+		fi
+
+		# Build find command via positional parameters (no eval)
+		set -- find "${dir}" -type f "("
+		first=true
+		for pat in ${GLOB_PATTERNS}; do
+			[ "${first}" = true ] && first=false || set -- "$@" -o
+			set -- "$@" -iname "${pat}"
+		done
+		set -- "$@" ")" -print0
+
+		"$@" | while IFS= read -r -d '' file; do
+			process_file "${file}" || log_err "failed to process: ${file}"
+		done || true
+	fi
 
 	print_summary
 }
