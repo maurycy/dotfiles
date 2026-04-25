@@ -84,9 +84,10 @@ if command -v git >/dev/null; then
   alias up='git up'
   alias stash='git stash'
   alias unstash='git stash apply'
-  alias ss='git stash push -u'
-  alias sl='git stash list'
-  alias sp='git stash pop'
+  alias spush='git stash push -u'
+  alias slist='git stash list'
+  alias spop='git stash pop'
+  alias sdrop='git stash drop'
   alias merge='git merge'
 fi
 
