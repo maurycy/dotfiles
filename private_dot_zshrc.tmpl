@@ -11,7 +11,7 @@ typeset -U path
 # remove history entries older than 7 days
 () {
   local f=~/.zsh_history c=$((EPOCHSECONDS - 604800))
-  [[ -f $f ]] && awk -v c=$c '/^: [0-9]+:/{if(int(substr($0,3))>=c)print;next}1' $f > $f.tmp && mv $f.tmp $f
+  [[ -f $f ]] && LC_ALL=C awk -v c=$c '/^: [0-9]+:/{if(int(substr($0,3))>=c)print;next}1' $f > $f.tmp && mv $f.tmp $f
 }
 HISTFILE=~/.zsh_history
 HISTSIZE=10000000000000000
