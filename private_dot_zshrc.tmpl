@@ -106,7 +106,17 @@ select-word-style bash
 # prompt
 autoload -Uz vcs_info
 zstyle ':vcs_info:git:*' get-revision true
-zstyle ':vcs_info:git:*' formats '(%b %.7i)'
+zstyle ':vcs_info:git:*' check-for-changes true
+zstyle ':vcs_info:git:*' stagedstr '+'
+zstyle ':vcs_info:git:*' unstagedstr '*'
+zstyle ':vcs_info:git*+set-message:*' hooks git-untracked
++vi-git-untracked() {
+  if git rev-parse --is-inside-work-tree &>/dev/null && \
+     [[ -n $(git ls-files --others --exclude-standard 2>/dev/null) ]]; then
+    hook_com[unstaged]+='?'
+  fi
+}
+zstyle ':vcs_info:git:*' formats '(%b %.7i%u%c)'
 _set_prompt() {
   if (( $(tput cols) < 120 )); then
     PS1="%(?..[%?] )%n@%B%m%b %1~ ${vcs_info_msg_0_} %# "
