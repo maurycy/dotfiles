@@ -59,6 +59,7 @@ alias python='uv run python'
 alias cl='claude'
 alias cx='codex'
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
+alias bp='sudo make clean ; ./configure --enable-optimizations --with-lto && make -j$(nproc)'
 {{- if eq .chezmoi.os "darwin" }}
 alias code="'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'"
 alias code2="'/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code'"
