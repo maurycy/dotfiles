@@ -1,0 +1,43 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
+  "modules": [
+    "title",
+    "separator",
+    "os",
+    "host",
+    "kernel",
+    "uptime",
+    "packages",
+    "shell",
+    "display",
+    "de",
+    "wm",
+    "wmtheme",
+    "theme",
+    "icons",
+    "font",
+    "cursor",
+    "terminal",
+    "terminalfont",
+    "cpu",
+    "gpu",
+    "memory",
+    "swap",
+    "disk",
+    "localip",
+    {
+      "type": "command",
+      "key": "Open Ports",
+{{- if eq .chezmoi.os "darwin" }}
+      "text": "lsof -iTCP -sTCP:LISTEN -nP 2>/dev/null | awk 'NR>1 {split($9,a,\":\"); print a[length(a)]}' | sort -un | awk '{printf \"%s%s\", sep, $0; sep=\", \"}'"
+{{- else }}
+      "text": "ss -tlnp 2>/dev/null | awk 'NR>1 {split($4,a,\":\"); print a[length(a)]}' | sort -un | awk '{printf \"%s%s\", sep, $0; sep=\", \"}'"
+{{- end }}
+    },
+    "battery",
+    "poweradapter",
+    "locale",
+    "break",
+    "colors"
+  ]
+}
