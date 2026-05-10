@@ -3,7 +3,7 @@
 [user]
 	name = maurycy
 	email = 5383+maurycy@users.noreply.github.com
-	signingkey = C17EC9E80FCB0F6A9F9F9F28E7F259C5811EBE4A
+	signingkey = 2896D6FE5AB97B6214676444DAA4A263A5B8A924
 
 [core]
 	editor = vim
