@@ -71,6 +71,10 @@
 	# enabled = true
 	# autoupdate = true
 
+[gc]
+	reflogExpire = 1.year
+	reflogExpireUnreachable = 1.year
+
 # https://news.ycombinator.com/item?id=43169861
 [log]
 	date = iso
