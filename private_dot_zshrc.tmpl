@@ -5,8 +5,8 @@ setopt SHARE_HISTORY
 setopt NO_BEEP
 setopt EXTENDED_GLOB
 
-# deduplicate PATH
-typeset -U path
+# deduplicate PATH and fpath
+typeset -U path fpath
 
 HISTFILE=~/.zsh_history
 HISTSIZE=10000000000000000
@@ -69,20 +69,8 @@ export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
 {{- if eq .chezmoi.os "darwin" }}
 # brew shellenv (cached for speed)
-if [ -x /opt/homebrew/bin/brew ]; then
-  _brew_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/brew_shellenv.zsh"
-  if [[ ! -s "$_brew_cache" ]]; then
-    mkdir -p "${_brew_cache:h}"
-    _brew_tmp="$(mktemp "${_brew_cache}.XXXXXX")"
-    if /opt/homebrew/bin/brew shellenv > "$_brew_tmp" && [[ -s "$_brew_tmp" ]]; then
-      mv -f "$_brew_tmp" "$_brew_cache"
-    else
-      rm -f "$_brew_tmp"
-    fi
-  fi
-  [[ -s "$_brew_cache" ]] && source "$_brew_cache"
-  unset _brew_cache _brew_tmp
-fi
+[[ -x /opt/homebrew/bin/brew ]] && \
+  _cache_eval brew_shellenv /opt/homebrew/bin/brew /opt/homebrew/bin/brew shellenv
 {{- end }}
 
 # aliases
@@ -182,39 +170,27 @@ TRAPWINCH() {
 
 # tool initializations
 # zoxide (cached; regenerated when the zoxide binary changes)
-if [[ -n $commands[zoxide] ]]; then
-  _zoxide_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zoxide.zsh"
-  if [[ ! -s "$_zoxide_cache" || $commands[zoxide] -nt "$_zoxide_cache" ]]; then
-    mkdir -p "${_zoxide_cache:h}"
-    _zoxide_tmp="$(mktemp "${_zoxide_cache}.XXXXXX")"
-    if zoxide init zsh > "$_zoxide_tmp" && [[ -s "$_zoxide_tmp" ]]; then
-      mv -f "$_zoxide_tmp" "$_zoxide_cache"
-    else
-      rm -f "$_zoxide_tmp"
-    fi
-  fi
-  [[ -s "$_zoxide_cache" ]] && source "$_zoxide_cache"
-  unset _zoxide_cache _zoxide_tmp
-fi
+(( $+commands[zoxide] )) && _cache_eval zoxide "$commands[zoxide]" zoxide init zsh
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
-# bun completions
-[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
+# bun completion (sourced lazily from ~/.bun on first `bun` completion)
+if [[ -r "$HOME/.bun/_bun" ]]; then
+  _bun_load() { source "$HOME/.bun/_bun" }
+  _lazy_load _bun_load _bun
+  compdef _bun bun
+fi
 
-# uv completion (cached; regenerated when the uv binary changes)
-if [[ -n $commands[uv] ]]; then
+# uv completion: cached, parsed lazily on first `uv` completion - the ~500K
+# completion script never touches the startup path
+if (( $+commands[uv] )); then
   _uv_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/uv.zsh"
-  if [[ ! -s "$_uv_cache" || $commands[uv] -nt "$_uv_cache" ]]; then
-    mkdir -p "${_uv_cache:h}"
-    _uv_tmp="$(mktemp "${_uv_cache}.XXXXXX")"
-    if uv generate-shell-completion zsh > "$_uv_tmp" && [[ -s "$_uv_tmp" ]]; then
-      mv -f "$_uv_tmp" "$_uv_cache"
-    else
-      rm -f "$_uv_tmp"
-    fi
+  _cache_file "$_uv_cache" "$commands[uv]" uv generate-shell-completion zsh
+  if [[ -s "$_uv_cache" ]]; then
+    _uv_load() { source "${XDG_CACHE_HOME:-$HOME/.cache}/zsh/uv.zsh" }
+    _lazy_load _uv_load _uv
+    compdef _uv uv
   fi
-  [[ -s "$_uv_cache" ]] && source "$_uv_cache"
-  unset _uv_cache _uv_tmp
+  unset _uv_cache
 fi
 
 # google cloud sdk
@@ -314,21 +290,13 @@ mupdate() {
   whence -w mupdate_local >/dev/null 2>&1 && { mupdate_local || true; }
 }
 
-# rbenv (lazy-loaded)
+# rbenv (shims on PATH; `rbenv init` lazy-loaded on first `rbenv` call)
 if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
   export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
-  [[ -d "$RBENV_ROOT/bin" ]] && path=("$RBENV_ROOT/bin" "$RBENV_ROOT/shims" $path)
-  _rbenv_load() {
-    unset -f ruby gem bundle rbenv irb rake rails
-    eval "$(rbenv init - zsh)"
-  }
-  ruby() { _rbenv_load; ruby "$@"; }
-  gem() { _rbenv_load; gem "$@"; }
-  bundle() { _rbenv_load; bundle "$@"; }
-  rbenv() { _rbenv_load; rbenv "$@"; }
-  irb() { _rbenv_load; irb "$@"; }
-  rake() { _rbenv_load; rake "$@"; }
-  rails() { _rbenv_load; rails "$@"; }
+  [[ -d "$RBENV_ROOT/bin" ]]   && path=("$RBENV_ROOT/bin" $path)
+  [[ -d "$RBENV_ROOT/shims" ]] && path=("$RBENV_ROOT/shims" $path)
+  _rbenv_load() { eval "$(rbenv init - zsh)" }
+  _lazy_load _rbenv_load rbenv
 fi
 
 # nvm (lazy-loaded)
@@ -353,8 +321,8 @@ if [ -d "$NVM_DIR/versions/node" ]; then
   unset -f _nvm_resolve_alias
 fi
 if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
+  # node/npm/npx run as PATH binaries (pinned above); only `nvm` needs nvm.sh
   _nvm_load() {
-    unset -f nvm node npm npx _nvm_load
     if [ -s "$NVM_DIR/nvm.sh" ]; then
       \. "$NVM_DIR/nvm.sh"
       [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
@@ -363,10 +331,7 @@ if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
     fi
     [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
   }
-  nvm() { _nvm_load; nvm "$@"; }
-  node() { _nvm_load; node "$@"; }
-  npm() { _nvm_load; npm "$@"; }
-  npx() { _nvm_load; npx "$@"; }
+  _lazy_load _nvm_load nvm
 fi
 
 # xdg PATH first

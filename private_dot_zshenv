@@ -1,1 +1,50 @@
+# shared helpers - .zshenv is sourced first for every zsh, so .zprofile and
+# .zshrc can both use these. The helper functions below only define
+# themselves; they run nothing until called.
+
+# ensure <cache-path> holds the fresh stdout of <command>; regenerate it when
+# the cache is missing/empty or <trigger> is newer. atomic write via mktemp.
+# usage: _cache_file <cache-path> <trigger-path|''> <command> [args...]
+_cache_file() {
+  local cache="$1" trigger="$2" tmp
+  local -a cmd=( "${@:3}" )
+  if [[ ! -s "$cache" || ( -n "$trigger" && "$trigger" -nt "$cache" ) ]]; then
+    mkdir -p "${cache:h}"
+    if tmp=$(mktemp "${cache}.XXXXXX"); then
+      if "${cmd[@]}" > "$tmp" && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$cache"
+      else
+        rm -f "$tmp"
+      fi
+    fi
+  fi
+}
+
+# _cache_file under $XDG_CACHE_HOME/zsh/<name>.zsh, then source it - for
+# shell-init snippets that must load on every startup.
+# usage: _cache_eval <name> <trigger-path|''> <command> [args...]
+_cache_eval() {
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/$1.zsh"
+  _cache_file "$cache" "${@:2}"
+  set --
+  [[ -s "$cache" ]] && source "$cache"
+}
+
+# define lazy stub commands that run <loader-fn> on first call, then re-dispatch.
+# usage: _lazy_load <loader-fn> <cmd>...
+_lazy_load() {
+  emulate -L zsh
+  local loader="$1" cmd quoted_loader quoted_cmds
+  shift
+  quoted_loader="${(q)loader}"
+  quoted_cmds="${(q-)@}"
+  for cmd in "$@"; do
+    functions[$cmd]="
+      unfunction -- $quoted_cmds 2>/dev/null
+      $quoted_loader
+      ${(q)cmd} \"\$@\"
+    "
+  done
+}
+
 [[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"

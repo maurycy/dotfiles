@@ -2,19 +2,7 @@
 
 {{- if eq .chezmoi.os "darwin" }}
 # brew shellenv (cached for speed; same cache as .zshrc)
-if [ -x /opt/homebrew/bin/brew ]; then
-  _brew_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/brew_shellenv.zsh"
-  if [[ ! -s "$_brew_cache" ]]; then
-    mkdir -p "${_brew_cache:h}"
-    _brew_tmp="$(mktemp "${_brew_cache}.XXXXXX")"
-    if /opt/homebrew/bin/brew shellenv > "$_brew_tmp" && [[ -s "$_brew_tmp" ]]; then
-      mv -f "$_brew_tmp" "$_brew_cache"
-    else
-      rm -f "$_brew_tmp"
-    fi
-  fi
-  [[ -s "$_brew_cache" ]] && source "$_brew_cache"
-  unset _brew_cache _brew_tmp
-fi
+[[ -x /opt/homebrew/bin/brew ]] && \
+  _cache_eval brew_shellenv /opt/homebrew/bin/brew /opt/homebrew/bin/brew shellenv
 {{- end }}
 
