@@ -98,6 +98,7 @@ alias paw="pwgen -snyc 128"
 alias python='uv run python'
 alias cl='claude'
 alias cx='codex'
+alias mmupdate='tmux new-session -d -s backup '\''zsh -ic "mupdate && backup_full"'\'''
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
 alias b='./configure --enable-optimizations && make -j$(getconf _NPROCESSORS_ONLN)'
 alias bp='./configure --enable-optimizations --with-lto && make -j$(getconf _NPROCESSORS_ONLN)'
