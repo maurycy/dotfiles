@@ -46,8 +46,6 @@
 
 [fetch]
 	prune = true
-	pruneTags = true
-	all = true
 
 [pull]
 	rebase = true
