@@ -8,14 +8,49 @@ setopt EXTENDED_GLOB
 # deduplicate PATH
 typeset -U path
 
-# remove history entries older than 7 days
-() {
-  local f=~/.zsh_history c=$((EPOCHSECONDS - 604800))
-  [[ -f $f ]] && LC_ALL=C awk -v c=$c '/^: [0-9]+:/{if(int(substr($0,3))>=c)print;next}1' $f > $f.tmp && mv $f.tmp $f
-}
 HISTFILE=~/.zsh_history
 HISTSIZE=10000000000000000
 SAVEHIST=10000000000000000
+
+# keep the live HISTFILE small so startup stays fast: once a day, when it
+# grows past keep+slack entries, move the oldest down to keep entries into
+# an archive under $XDG_STATE_HOME instead of deleting them. one writer at
+# a time via a lock.
+() {
+  emulate -L zsh
+  local keep=40000 slack=10000
+  local arch="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history/zsh_history"
+  local stamp="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/history_archived"
+  local lock="$stamp.lock"
+  [[ -f $HISTFILE ]] || return
+  local recent=( $stamp(N.mh-24) )
+  (( $#recent )) && return
+  mkdir -p "${stamp:h}"
+  local stale=( $lock(N/mh+1) )
+  (( $#stale )) && rmdir "$lock" 2>/dev/null
+  mkdir "$lock" 2>/dev/null || return
+  {
+    local total
+    total=$(LC_ALL=C grep -cE '^: [0-9]+:' "$HISTFILE")
+    if (( $? <= 1 )); then
+      if (( total > keep + slack )); then
+        local old="$HISTFILE.old.$$" new="$HISTFILE.new.$$"
+        if LC_ALL=C awk -v cut=$((total - keep)) -v old="$old" -v new="$new" '
+             /^: [0-9]+:/ { n++ }
+             { if (n <= cut) print > old; else print > new }
+           ' "$HISTFILE" && [[ -s $old && -s $new ]]; then
+          mkdir -p "${arch:h}"
+          cat "$old" >> "$arch" && mv "$new" "$HISTFILE" && : > "$stamp"
+        fi
+        rm -f "$old" "$new"
+      else
+        : > "$stamp"
+      fi
+    fi
+  } always {
+    rmdir "$lock" 2>/dev/null
+  }
+}
 zshaddhistory() {
   if [[ $1 == *postgres* ]]; then
     print -s "$(printf '%s' "${1%$'\n'}" | sed 's/[^ ]*postgres[^ ]*/meow/g')"
@@ -36,12 +71,17 @@ export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 # brew shellenv (cached for speed)
 if [ -x /opt/homebrew/bin/brew ]; then
   _brew_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/brew_shellenv.zsh"
-  if [[ ! -f "$_brew_cache" ]]; then
+  if [[ ! -s "$_brew_cache" ]]; then
     mkdir -p "${_brew_cache:h}"
-    /opt/homebrew/bin/brew shellenv > "$_brew_cache"
+    _brew_tmp="$(mktemp "${_brew_cache}.XXXXXX")"
+    if /opt/homebrew/bin/brew shellenv > "$_brew_tmp" && [[ -s "$_brew_tmp" ]]; then
+      mv -f "$_brew_tmp" "$_brew_cache"
+    else
+      rm -f "$_brew_tmp"
+    fi
   fi
-  source "$_brew_cache"
-  unset _brew_cache
+  [[ -s "$_brew_cache" ]] && source "$_brew_cache"
+  unset _brew_cache _brew_tmp
 fi
 {{- end }}
 
@@ -141,25 +181,40 @@ TRAPWINCH() {
 [[ -d "$BUN_INSTALL/bin" ]] && path=("$BUN_INSTALL/bin" $path)
 
 # tool initializations
-command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
+# zoxide (cached; regenerated when the zoxide binary changes)
+if [[ -n $commands[zoxide] ]]; then
+  _zoxide_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zoxide.zsh"
+  if [[ ! -s "$_zoxide_cache" || $commands[zoxide] -nt "$_zoxide_cache" ]]; then
+    mkdir -p "${_zoxide_cache:h}"
+    _zoxide_tmp="$(mktemp "${_zoxide_cache}.XXXXXX")"
+    if zoxide init zsh > "$_zoxide_tmp" && [[ -s "$_zoxide_tmp" ]]; then
+      mv -f "$_zoxide_tmp" "$_zoxide_cache"
+    else
+      rm -f "$_zoxide_tmp"
+    fi
+  fi
+  [[ -s "$_zoxide_cache" ]] && source "$_zoxide_cache"
+  unset _zoxide_cache _zoxide_tmp
+fi
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
 
 # bun completions
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
-# uv completion (cached for speed)
-if command -v uv >/dev/null; then
+# uv completion (cached; regenerated when the uv binary changes)
+if [[ -n $commands[uv] ]]; then
   _uv_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/uv.zsh"
-  _uv_ver="# $(uv --version)"
-  if [[ ! -f "$_uv_cache" || "$_uv_ver" != "$(head -1 "$_uv_cache" 2>/dev/null)" ]]; then
+  if [[ ! -s "$_uv_cache" || $commands[uv] -nt "$_uv_cache" ]]; then
     mkdir -p "${_uv_cache:h}"
     _uv_tmp="$(mktemp "${_uv_cache}.XXXXXX")"
-    echo "$_uv_ver" > "$_uv_tmp"
-    uv generate-shell-completion zsh >> "$_uv_tmp"
-    mv -f "$_uv_tmp" "$_uv_cache"
+    if uv generate-shell-completion zsh > "$_uv_tmp" && [[ -s "$_uv_tmp" ]]; then
+      mv -f "$_uv_tmp" "$_uv_cache"
+    else
+      rm -f "$_uv_tmp"
+    fi
   fi
-  source "$_uv_cache"
-  unset _uv_cache _uv_ver _uv_tmp
+  [[ -s "$_uv_cache" ]] && source "$_uv_cache"
+  unset _uv_cache _uv_tmp
 fi
 
 # google cloud sdk
