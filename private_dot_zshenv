@@ -2,14 +2,38 @@
 # .zshrc can both use these. The helper functions below only define
 # themselves; they run nothing until called.
 
+# _is_safe_source <file> [strict] - succeed only if <file> is a regular,
+# non-symlink file owned by the current user. default: also require no
+# group/other WRITE bit (tamper safety). `strict`: require no group/other
+# permission bits at all - for cache files we create ourselves (mktemp 0600).
+_is_safe_source() {
+  emulate -L zsh
+  zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  local f=$1
+  [[ -f $f && ! -L $f && -O $f ]] || return 1
+  local -A s
+  zstat -H s -- "$f" 2>/dev/null || return 1
+  # 18 = octal 022 (group/other write bits); 63 = octal 077 (all group/other
+  # bits). plain decimals on purpose: zsh's 8#NN base notation would poison
+  # the global integer output base and break `local -i` elsewhere (e.g.
+  # vcs_info's max-exports), and a bare 0NN is read as decimal, not octal.
+  if [[ -n $2 ]]; then
+    (( (s[mode] & 63) == 0 ))
+  else
+    (( (s[mode] & 18) == 0 ))
+  fi
+}
+
 # ensure <cache-path> holds the fresh stdout of <command>; regenerate it when
-# the cache is missing/empty or <trigger> is newer. atomic write via mktemp.
+# the cache is missing/empty, <trigger> is newer, or the cache is not safe to
+# source (symlink/foreign/loose perms). atomic write via mktemp.
 # usage: _cache_file <cache-path> <trigger-path|''> <command> [args...]
 _cache_file() {
   local cache="$1" trigger="$2" tmp
   local -a cmd=( "${@:3}" )
-  if [[ ! -s "$cache" || ( -n "$trigger" && "$trigger" -nt "$cache" ) ]]; then
-    mkdir -p "${cache:h}"
+  if [[ ! -s "$cache" || ( -n "$trigger" && "$trigger" -nt "$cache" ) ]] \
+     || ! _is_safe_source "$cache" strict; then
+    mkdir -p "${cache:h}" && chmod 700 "${cache:h}"
     if tmp=$(mktemp "${cache}.XXXXXX"); then
       if "${cmd[@]}" > "$tmp" && [[ -s "$tmp" ]]; then
         mv -f "$tmp" "$cache"
@@ -27,7 +51,7 @@ _cache_eval() {
   local cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/$1.zsh"
   _cache_file "$cache" "${@:2}"
   set --
-  [[ -s "$cache" ]] && source "$cache"
+  _is_safe_source "$cache" strict && source "$cache"
 }
 
 # define lazy stub commands that run <loader-fn> on first call, then re-dispatch.
@@ -47,4 +71,6 @@ _lazy_load() {
   done
 }
 
-[[ -r "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+# cargo: the env file only manipulates PATH - add the bin dir directly,
+# avoiding a source of an external script in every (incl. non-interactive) zsh
+[[ -d "$HOME/.cargo/bin" ]] && path=("$HOME/.cargo/bin" $path)
