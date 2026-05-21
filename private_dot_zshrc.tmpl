@@ -68,9 +68,7 @@ export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 {{- end }}
 
 {{- if eq .chezmoi.os "darwin" }}
-# brew shellenv (cached for speed)
-[[ -x /opt/homebrew/bin/brew ]] && \
-  _cache_eval brew_shellenv /opt/homebrew/bin/brew /opt/homebrew/bin/brew shellenv
+{{ template "brew-env.zsh" . }}
 {{- end }}
 
 # aliases
@@ -123,15 +121,31 @@ if command -v git >/dev/null; then
   alias merge='git merge'
 fi
 
-# completion (cached for speed)
-autoload -Uz compinit
-if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
-  compinit
-else
-  compinit -C
-fi
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
-zstyle ':completion:*:-command-:*' tag-order '!parameters'
+# completion: compinit is deferred to the first <Tab> so it never touches the
+# startup path. compdef calls made before then are queued here and replayed
+# once compinit has run (see _compinit_boot, bound to ^I near the end).
+typeset -ga _compdef_queue
+compdef() { _compdef_queue+=( "${(j: :)${(q)@}}" ) }
+
+_compinit_real() {
+  emulate -L zsh
+  unfunction compdef _compinit_real 2>/dev/null
+  autoload -Uz compinit
+  if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
+    compinit
+  else
+    compinit -C
+  fi
+  zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+  zstyle ':completion:*:-command-:*' tag-order '!parameters'
+  # gcloud completion needs compdef/bashcompinit, so it loads here too
+  [[ -f "$HOME/.local/google-cloud-sdk/completion.zsh.inc" ]] && \
+    source "$HOME/.local/google-cloud-sdk/completion.zsh.inc"
+  local c
+  for c in "${_compdef_queue[@]}"; do eval "compdef $c"; done
+  unset _compdef_queue
+}
+
 autoload -U select-word-style
 select-word-style bash
 
@@ -171,7 +185,7 @@ TRAPWINCH() {
 # tool initializations
 # zoxide (cached; regenerated when the zoxide binary changes)
 (( $+commands[zoxide] )) && _cache_eval zoxide "$commands[zoxide]" zoxide init zsh
-[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+# note: ~/.cargo/env is sourced once in .zshenv (runs before .zshrc)
 
 # bun completion (sourced lazily from ~/.bun on first `bun` completion)
 if [[ -r "$HOME/.bun/_bun" ]]; then
@@ -193,9 +207,8 @@ if (( $+commands[uv] )); then
   unset _uv_cache
 fi
 
-# google cloud sdk
+# google cloud sdk (completion.zsh.inc loads lazily inside _compinit_real)
 [ -f "$HOME/.local/google-cloud-sdk/path.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/path.zsh.inc"
-[ -f "$HOME/.local/google-cloud-sdk/completion.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/completion.zsh.inc"
 
 # functions
 diff() {
@@ -234,7 +247,14 @@ _tab_or_diff_cycle() {
   fi
 }
 zle -N _tab_or_diff_cycle
-bindkey '^I' _tab_or_diff_cycle
+
+# the first <Tab> bootstraps the deferred compinit, then acts as a normal Tab
+_compinit_boot() {
+  _compinit_real
+  bindkey -M emacs '^I' _tab_or_diff_cycle
+  zle _tab_or_diff_cycle
+}
+zle -N _compinit_boot
 
 worktree() {
   case "$1" in
@@ -301,22 +321,31 @@ fi
 
 # nvm (lazy-loaded)
 if [ -d "$NVM_DIR/versions/node" ]; then
+  # resolver runs fork-free: $(<file) is read internally by zsh, and the
+  # result is returned via REPLY so the caller avoids a $() subshell too.
   _nvm_resolve_alias() {
     local alias="$1" target
     while [ -f "$NVM_DIR/alias/$alias" ]; do
-      target=$(cat "$NVM_DIR/alias/$alias")
-      [[ "$target" == v* ]] && { echo "$target"; return; }
+      target=$(<"$NVM_DIR/alias/$alias")
+      [[ "$target" == v* ]] && { REPLY="$target"; return; }
       alias="$target"
     done
-    [ -f "$NVM_DIR/alias/lts/$alias" ] && cat "$NVM_DIR/alias/lts/$alias" && return
-    echo "$alias"
+    if [ -f "$NVM_DIR/alias/lts/$alias" ]; then
+      REPLY=$(<"$NVM_DIR/alias/lts/$alias")
+    else
+      REPLY="$alias"
+    fi
   }
-  NODE_VER=$(_nvm_resolve_alias default)
+  _nvm_resolve_alias default
+  NODE_VER="$REPLY"
   if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
     path=("$NVM_DIR/versions/node/$NODE_VER/bin" $path)
   else
-    NODE_LATEST=$(ls -v "$NVM_DIR/versions/node" 2>/dev/null | tail -1)
-    [[ -n "$NODE_LATEST" ]] && path=("$NVM_DIR/versions/node/$NODE_LATEST/bin" $path)
+    # newest installed version via glob: (/) dirs, (N) nullglob,
+    # (On) numeric descending sort -> [1] is the latest
+    _node_vers=( "$NVM_DIR"/versions/node/*(/Non) )
+    (( $#_node_vers )) && path=("${_node_vers[1]}/bin" $path)
+    unset _node_vers
   fi
   unset -f _nvm_resolve_alias
 fi
@@ -339,6 +368,8 @@ path=("$HOME/.local/bin" $path)
 
 # emacs mode (EDITOR=vim defaults to vi mode)
 bindkey -e
+# bind <Tab> after `bindkey -e` so it lands in the active emacs keymap
+bindkey -M emacs '^I' _compinit_boot
 
 # local overrides
 [[ -f "$HOME/.zshrc.local" ]] && source "$HOME/.zshrc.local"

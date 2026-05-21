@@ -1,8 +1,6 @@
 [[ -r "$HOME/.profile" ]] && . "$HOME/.profile"
 
 {{- if eq .chezmoi.os "darwin" }}
-# brew shellenv (cached for speed; same cache as .zshrc)
-[[ -x /opt/homebrew/bin/brew ]] && \
-  _cache_eval brew_shellenv /opt/homebrew/bin/brew /opt/homebrew/bin/brew shellenv
+{{ template "brew-env.zsh" . }}
 {{- end }}
 
