@@ -1,4 +1,4 @@
-[[ -r "$HOME/.profile" ]] && . "$HOME/.profile"
+_is_safe_source "$HOME/.profile" && . "$HOME/.profile"
 
 {{- if eq .chezmoi.os "darwin" }}
 {{ template "brew-env.zsh" . }}
