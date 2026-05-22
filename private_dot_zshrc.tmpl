@@ -166,11 +166,14 @@ worktree() {
   esac
 }
 
-_is_brew_pkg() {
-  command -v brew >/dev/null && brew list "$1" &>/dev/null
-}
-
 mupdate() {
+  # nested, not global: only mupdate ever asked whether brew owns a tool,
+  # and brew is not on PATH in non-interactive shells anyway. unfunction
+  # at the bottom keeps the global namespace clean.
+  _is_brew_pkg() {
+    command -v brew >/dev/null && brew list "$1" &>/dev/null
+  }
+
   command -v fastfetch >/dev/null && fastfetch
   command -v chezmoi >/dev/null && { chezmoi update || return; }
   command -v uv >/dev/null && { uv self update || return; }
@@ -210,6 +213,8 @@ mupdate() {
   }
 
   whence -w mupdate_local >/dev/null 2>&1 && { mupdate_local || true; }
+
+  unfunction _is_brew_pkg 2>/dev/null
 }
 
 # notes (n / ns / nf): topical markdown knowledge base
