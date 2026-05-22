@@ -9,11 +9,11 @@ which is the authority on them, not this file.
 
 ## Templates
 
-Non-trivial standalone concerns live in `.chezmoitemplates/<name>.zsh`
-and are pulled into `.zshrc` (or `.zprofile`) via
+Substantial standalone concerns live in `.chezmoitemplates/<name>.zsh`;
+`.zshrc` (or `.zprofile`) pulls them in via
 `{{ template "<name>.zsh" . }}`. The history machinery, the prompt,
 the notes helpers, the per-tool toolchain snippets, the git
-ergonomics, and the Homebrew env are all wired that way today.
+helpers, and the Homebrew env are all wired that way today.
 Extract a block when it is complex enough to dominate reading the
 file, or scattered across more than a couple of insertion points;
 leave inline otherwise. The cost of an extra file is real (one more
@@ -30,7 +30,7 @@ What CI cannot do is run the shell, and most of what goes wrong here
 only shows up in a running shell. So for anything behavioral, build a
 sandbox - a throwaway `HOME` with `ZDOTDIR`, `XDG_CACHE_HOME` and
 `XDG_STATE_HOME` pointed inside it - render the config there, and start
-`zsh -l -i`. This is not fussiness. The config rewrites `~/.zsh_history`,
+`zsh -l -i`. The config rewrites `~/.zsh_history`,
 regenerates caches, and sources `~/.secrets` the moment it starts; point
 it at your real home directory and it edits your real home directory.
 
@@ -97,7 +97,7 @@ nullglob, numeric-descending sort, so `[1]` is the newest; `read -r var
 < file` for a single read; `typeset -U path fpath` to dedup PATH and
 fpath for free.
 
-Work that cannot be made cheap is moved off the startup path. `compinit`
+Move work you cannot make cheap off the startup path. `compinit`
 spends 4-5ms parsing `~/.zcompdump`, so it is deferred to the first
 `<Tab>`: a stub queues `compdef` calls, and a zle widget bound to `^I`
 runs the real `compinit` once and replays the queue. A shell that never
@@ -115,7 +115,7 @@ Order and idempotency matter. brew's environment must be set up after
 `/etc/zprofile` has run `path_helper`, or `/opt/homebrew/bin` lands
 behind `/usr/bin`; that is why it cannot move to `.zshenv`. Prepend-style
 variables like `INFOPATH` and `MANPATH` collect duplicates across nested
-shells unless you check for containment before exporting. And do not
+shells unless you check for containment before exporting. Do not
 source the same file from both `.zshenv` and `.zshrc` - `.zshenv` runs
 first.
 
@@ -148,7 +148,7 @@ and the measures are load-bearing. Each one has a comment in the code
 explaining itself. The task when editing is to recognize them and not
 quietly undo them while cleaning something else up.
 
-Be honest about the threat they answer. It is the accident: a
+Name the threat they answer. It is the accident: a
 world-writable file, a symlink where a real file should be, a secret
 that leaks into history, a mode left too loose. It is not a hostile
 process already running as you - that process can edit these dotfiles
@@ -194,10 +194,10 @@ Write to the filesystem carefully. Temp files come from `mktemp`, never a
 guessable `$$`, PID, or timestamp name. A symlink already sitting at a
 write target is removed before anything is written through it. A commit
 to a real path is an atomic `mv`. Keep array and path expansions quoted -
-`"${cmd[@]}"`, `"${cache:h}"`, `"$HOME/..."` - because un-quoting them
+`"${cmd[@]}"`, `"${cache:h}"`, `"$HOME/..."` - because unquoting them
 quietly brings back word-splitting and globbing bugs.
 
-Finally, mind `.zshenv`. It is sourced by every zsh there is, the
+Mind `.zshenv`. It is sourced by every zsh there is, the
 non-interactive ones behind cron, `ssh host cmd` and scripts included.
 Nothing external is `source`d from there; if something needs to be on
 `PATH`, put its directory on `PATH` directly.
