@@ -1,6 +1,7 @@
 # Keep in repo but don't apply
 LICENSE
 README.md
+CLAUDE.md
 
 # macOS-only ignores (Linux files to skip on macOS)
 {{ if eq .chezmoi.os "darwin" }}
