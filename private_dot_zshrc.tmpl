@@ -50,24 +50,6 @@ if command -v rsync >/dev/null; then
   alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
 fi
 
-if command -v git >/dev/null; then
-  alias add='git add'
-  alias ci='git ci'
-  alias co='git co'
-  alias push='git push'
-  alias pull='git pull'
-  alias st='git st'
-  alias d='git diff'
-  alias up='git up'
-  alias stash='git stash'
-  alias unstash='git stash apply'
-  alias spush='git stash push -u'
-  alias slist='git stash list'
-  alias spop='git stash pop'
-  alias sdrop='git stash drop'
-  alias merge='git merge'
-fi
-
 # completion: compinit is deferred to the first <Tab> so it never touches the
 # startup path. compdef calls made before then are queued here and replayed
 # once compinit has run (see _compinit_boot, bound to ^I near the end).
@@ -113,42 +95,8 @@ select-word-style bash
 # section further down (.chezmoitemplates/tools/).
 
 # functions
-diff() {
-  local args=() use_git=0
-  for arg in "$@"; do
-    if [[ "$arg" == --cach* ]]; then
-      args+=(--cached)
-      use_git=1
-    else
-      args+=("$arg")
-    fi
-  done
-  if (( use_git )); then
-    git diff "${args[@]}"
-  else
-    command diff "$@"
-  fi
-}
-
-_diff() {
-  _arguments \
-    '--cached[show git staged changes]' \
-    '*:file:_files'
-}
-compdef _diff diff
-
-_tab_or_diff_cycle() {
-  if [[ "$BUFFER" == "diff" ]]; then
-    BUFFER="git diff"
-    CURSOR=$#BUFFER
-  elif [[ "$BUFFER" == "git diff" ]]; then
-    BUFFER="diff"
-    CURSOR=$#BUFFER
-  else
-    zle expand-or-complete
-  fi
-}
-zle -N _tab_or_diff_cycle
+# git: aliases, diff/git-diff dispatch + completion + tab-cycle, worktree
+{{ template "git.zsh" . }}
 
 # the first <Tab> bootstraps the deferred compinit, then acts as a normal Tab
 _compinit_boot() {
@@ -157,14 +105,6 @@ _compinit_boot() {
   zle _tab_or_diff_cycle
 }
 zle -N _compinit_boot
-
-worktree() {
-  case "$1" in
-    ls) shift; git worktree list "$@" ;;
-    rm) shift; git worktree remove "$@" ;;
-    *)  git worktree "$@" ;;
-  esac
-}
 
 mupdate() {
   # nested, not global: only mupdate ever asked whether brew owns a tool,
