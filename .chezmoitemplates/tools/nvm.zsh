@@ -33,11 +33,15 @@ if [ -d "$NVM_DIR/versions/node" ]; then
   unset -f _nvm_resolve_alias
 fi
 if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-  # node/npm/npx run as PATH binaries (pinned above); only `nvm` needs nvm.sh
+  # node/npm/npx run as PATH binaries (pinned above); only `nvm` needs nvm.sh.
+  # $NVM_DIR is under $HOME, so its scripts pass _is_safe_source first (regular
+  # file, owned by us, no symlink, no group/other write) before being sourced.
+  # the /opt/homebrew paths are a brew prefix, not a mutable home path, so they
+  # keep the plain -s test.
   _nvm_load() {
-    if [ -s "$NVM_DIR/nvm.sh" ]; then
+    if _is_safe_source "$NVM_DIR/nvm.sh"; then
       \. "$NVM_DIR/nvm.sh"
-      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+      _is_safe_source "$NVM_DIR/bash_completion" && \. "$NVM_DIR/bash_completion"
     elif [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
       \. "/opt/homebrew/opt/nvm/nvm.sh"
     fi
