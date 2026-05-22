@@ -106,6 +106,22 @@ shells unless you check for containment before exporting. And do not
 source the same file from both `.zshenv` and `.zshrc` - `.zshenv` runs
 first.
 
+`$commands` is a rebuild trigger, not a lookup. zsh keeps a hash of
+every executable on `PATH`; the first read of the `$commands` parameter
+builds it, and the first read after any `path=(...)` change rebuilds the
+whole thing by rescanning every directory on `PATH`. Consolidating the
+per-tool snippets into one block put uv's `$commands` read just after
+bun and gcloud had prepended to `PATH`, so the hash `zoxide` built
+seconds earlier was thrown away and built again - a second rescan of
+`/opt/homebrew/bin` and the rest, about 2ms, for code textually
+identical to what shipped before. Keep a `$commands` or `$+commands`
+read ahead of every nearby `path=(...)`; uv is deliberately the first
+tool snippet for exactly this reason. It was slow to find: the rendered
+file was byte-equivalent, `zprof` saw nothing because the cost is
+top-level, and one xtrace run could not separate 2ms from its own noise
+- averaging per-section checkpoints over a couple hundred starts was
+what localized it.
+
 When a question is about zsh itself, read the zsh C source rather than
 guess. That `$(<file)` is fork-free, what the glob qualifiers mean, and
 whether a function may `unfunction` itself mid-run were all settled that
