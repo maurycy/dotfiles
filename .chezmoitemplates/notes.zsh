@@ -1,28 +1,62 @@
 # notes - topical markdown knowledge base under $NOTES_DIR
-#   n  <name>    create or open a note: $NOTES_DIR/<name>.md
+#   n            pick a note (newest first; type to filter, or type a new
+#                name and press enter to create it)
+#   n <name>     create or open $NOTES_DIR/<name>.md directly
 #   ns <query>   search notes; filename matches rank above content matches
 #   nf <query>   same as ns
-# ripgrep does the searching; fzf (when installed) turns it into an
-# interactive picker, otherwise the ranked matches are just printed.
+# ripgrep does the searching; fzf (when installed) makes n and ns/nf
+# interactive. <Tab> after n completes existing note names.
 
 : "${NOTES_DIR:=$HOME/src/github.com/maurycy/prompts/research}"
 export NOTES_DIR
 
-# n - create or open a note by name. spaces become hyphens, a missing
-# ".md" is appended, and parent folders are created so "n draheim/foo" works.
+# n - open a note. with a name: create or open it (spaces become hyphens,
+# ".md" is appended, parent folders are created). without a name: an fzf
+# picker over notes newest-first - pick one, or type a name nothing
+# matches and press enter to create it.
 n() {
   emulate -L zsh
-  local name="$*"
-  if [[ -z "$name" ]]; then
-    print -u2 "usage: n <note-name>"
-    return 1
+
+  if [[ -n "$*" ]]; then
+    local name="${*// /-}"
+    [[ "$name" == *.md ]] || name+=".md"
+    local target="$NOTES_DIR/$name"
+    mkdir -p "${target:h}"
+    "${EDITOR:-vim}" "$target"
+    return
   fi
-  name="${name// /-}"
-  [[ "$name" == *.md ]] || name+=".md"
-  local target="$NOTES_DIR/$name"
-  mkdir -p "${target:h}"
-  "${EDITOR:-vim}" "$target"
+
+  mkdir -p "$NOTES_DIR"
+  local -a rel
+  rel=( "$NOTES_DIR"/**/*.md(.Nom) )   # .=files N=nullglob om=mtime, newest first
+  rel=( ${rel[@]#$NOTES_DIR/} )
+  (( ${#rel} )) || { print -u2 "notes: none yet - use 'n <name>' to create one"; return }
+
+  if ! command -v fzf >/dev/null; then
+    print -u2 "recent notes (open with 'n <name>'; install fzf for the picker):"
+    printf '  %s\n' "${rel[1,5]}"
+    return
+  fi
+
+  local preview="cat '$NOTES_DIR'/{}"
+  command -v bat >/dev/null && \
+    preview="bat --style=numbers --color=always '$NOTES_DIR'/{}"
+
+  local out
+  out="$(printf '%s\n' "${rel[@]}" \
+    | fzf --no-sort --print-query --prompt='note> ' \
+          --preview="$preview" --preview-window='right,60%')"
+  local rc=$?
+  local -a lines=( "${(@f)out}" )
+  case $rc in
+    0) [[ -n "${lines[2]}" ]] && "${EDITOR:-vim}" "$NOTES_DIR/${lines[2]}" ;;  # picked
+    1) [[ -n "${lines[1]}" ]] && n "${lines[1]}" ;;                            # typed a new name
+  esac                                                                          # 130: aborted
 }
+
+# <Tab> after n completes note names under $NOTES_DIR
+_notes_n() { _files -W "$NOTES_DIR" -g '*.md' }
+(( $+functions[compdef] )) && compdef _notes_n n
 
 # ns / nf - one search over both filenames and content. ripgrep emits two
 # blocks: filename matches first, then content matches with line numbers.
