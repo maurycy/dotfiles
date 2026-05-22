@@ -106,8 +106,6 @@ zshaddhistory() {
 
 # env
 export EDITOR=vim
-export NVM_DIR="$HOME/.nvm"
-export BUN_INSTALL="$HOME/.bun"
 export DISABLE_SPRING=1
 {{- if eq .chezmoi.os "darwin" }}
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
@@ -127,7 +125,6 @@ alias ll='l -a'
 alias rg='rg -p'
 alias be='bundle exec'
 alias paw="pwgen -snyc 128"
-alias python='uv run python'
 alias cl='claude'
 alias cx='codex'
 alias yt='uvx yt-dlp -f bestvideo+bestaudio --write-all-thumbnails --write-sub --convert-subs srt'
@@ -170,7 +167,7 @@ fi
 # completion: compinit is deferred to the first <Tab> so it never touches the
 # startup path. compdef calls made before then are queued here and replayed
 # once compinit has run (see _compinit_boot, bound to ^I near the end).
-typeset -ga _compdef_queue
+typeset -ga _compdef_queue _post_compinit_hooks
 compdef() { _compdef_queue+=( "${(j: :)${(q)@}}" ) }
 
 _compinit_real() {
@@ -184,9 +181,15 @@ _compinit_real() {
   fi
   zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
   zstyle ':completion:*:-command-:*' tag-order '!parameters'
-  # gcloud completion needs compdef/bashcompinit, so it loads here too
-  _is_safe_source "$HOME/.local/google-cloud-sdk/completion.zsh.inc" && \
-    source "$HOME/.local/google-cloud-sdk/completion.zsh.inc"
+  # drain deferred post-compinit hooks (e.g. gcloud completion, which
+  # needs compdef/bashcompinit). tool snippets register function names
+  # in _post_compinit_hooks; the $+functions guard turns a vanished hook
+  # into a no-op rather than a "command not found" on the first <Tab>.
+  local h
+  for h in "${_post_compinit_hooks[@]}"; do
+    (( $+functions[$h] )) && "$h"
+  done
+  unset -v _post_compinit_hooks
   local c
   for c in "${_compdef_queue[@]}"; do eval "compdef $c"; done
   unset _compdef_queue
@@ -231,39 +234,12 @@ TRAPWINCH() {
   zle && zle reset-prompt
 }
 
-# path
-[[ -d "$BUN_INSTALL/bin" ]] && path=("$BUN_INSTALL/bin" $path)
-
 # tool initializations
 # zoxide (cached; regenerated when the zoxide binary changes)
 (( $+commands[zoxide] )) && _cache_eval zoxide "$commands[zoxide]" zoxide init zsh
 # note: ~/.cargo/bin is added to PATH in .zshenv (runs before .zshrc)
-
-# bun completion (sourced lazily from ~/.bun on first `bun` completion)
-if [[ -r "$HOME/.bun/_bun" ]]; then
-  _bun_load() { _is_safe_source "$HOME/.bun/_bun" && source "$HOME/.bun/_bun" }
-  _lazy_load _bun_load _bun
-  compdef _bun bun
-fi
-
-# uv completion: cached, parsed lazily on first `uv` completion - the ~500K
-# completion script never touches the startup path
-if (( $+commands[uv] )); then
-  _uv_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/uv.zsh"
-  _cache_file "$_uv_cache" "$commands[uv]" uv generate-shell-completion zsh
-  if [[ -s "$_uv_cache" ]]; then
-    _uv_load() {
-      local c="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/uv.zsh"
-      _is_safe_source "$c" strict && source "$c"
-    }
-    _lazy_load _uv_load _uv
-    compdef _uv uv
-  fi
-  unset _uv_cache
-fi
-
-# google cloud sdk (completion.zsh.inc loads lazily inside _compinit_real)
-_is_safe_source "$HOME/.local/google-cloud-sdk/path.zsh.inc" && . "$HOME/.local/google-cloud-sdk/path.zsh.inc"
+# note: nvm/rbenv/uv/bun/gcloud load from the consolidated toolchain
+# section further down (.chezmoitemplates/tools/).
 
 # functions
 diff() {
@@ -368,58 +344,22 @@ mupdate() {
 # notes (n / ns / nf): topical markdown knowledge base
 {{ template "notes.zsh" . }}
 
-# rbenv (shims on PATH; `rbenv init` lazy-loaded on first `rbenv` call)
-if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
-  export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
-  [[ -d "$RBENV_ROOT/bin" ]]   && path=("$RBENV_ROOT/bin" $path)
-  [[ -d "$RBENV_ROOT/shims" ]] && path=("$RBENV_ROOT/shims" $path)
-  _rbenv_load() { eval "$(rbenv init - zsh)" }
-  _lazy_load _rbenv_load rbenv
-fi
-
-# nvm (lazy-loaded)
-if [ -d "$NVM_DIR/versions/node" ]; then
-  # resolver runs fork-free: $(<file) is read internally by zsh, and the
-  # result is returned via REPLY so the caller avoids a $() subshell too.
-  _nvm_resolve_alias() {
-    local alias="$1" target
-    while [ -f "$NVM_DIR/alias/$alias" ]; do
-      target=$(<"$NVM_DIR/alias/$alias")
-      [[ "$target" == v* ]] && { REPLY="$target"; return; }
-      alias="$target"
-    done
-    if [ -f "$NVM_DIR/alias/lts/$alias" ]; then
-      REPLY=$(<"$NVM_DIR/alias/lts/$alias")
-    else
-      REPLY="$alias"
-    fi
-  }
-  _nvm_resolve_alias default
-  NODE_VER="$REPLY"
-  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
-    path=("$NVM_DIR/versions/node/$NODE_VER/bin" $path)
-  else
-    # newest installed version via glob: (/) dirs, (N) nullglob,
-    # (On) numeric descending sort -> [1] is the latest
-    _node_vers=( "$NVM_DIR"/versions/node/*(/Non) )
-    (( $#_node_vers )) && path=("${_node_vers[1]}/bin" $path)
-    unset _node_vers
-  fi
-  unset -f _nvm_resolve_alias
-fi
-if [ -s "$NVM_DIR/nvm.sh" ] || [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-  # node/npm/npx run as PATH binaries (pinned above); only `nvm` needs nvm.sh
-  _nvm_load() {
-    if [ -s "$NVM_DIR/nvm.sh" ]; then
-      \. "$NVM_DIR/nvm.sh"
-      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-    elif [ -s "/opt/homebrew/opt/nvm/nvm.sh" ]; then
-      \. "/opt/homebrew/opt/nvm/nvm.sh"
-    fi
-    [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"
-  }
-  _lazy_load _nvm_load nvm
-fi
+# --- language toolchains & SDKs ----------------------------------------
+# each tool's full setup (env, PATH, lazy completion) lives in its own
+# .chezmoitemplates/tools/ file. two ordering rules, both load-bearing:
+#  - uv stays first. it reads $commands (the command hash); doing so
+#    before bun/gcloud/rbenv/nvm prepend to PATH keeps the hash zoxide
+#    already built valid. move it after a PATH prepend and the next
+#    $commands access rebuilds the hash by rescanning all of PATH
+#    (~2ms, measured) - the whole point of this consolidation was to
+#    not regress startup.
+#  - bun/gcloud/rbenv/nvm then prepend to PATH; the last prepend wins
+#    the front, so ~/.local/bin (below) must stay after them all.
+{{ template "tools/uv.zsh" . }}
+{{ template "tools/bun.zsh" . }}
+{{ template "tools/gcloud.zsh" . }}
+{{ template "tools/rbenv.zsh" . }}
+{{ template "tools/nvm.zsh" . }}
 
 # xdg PATH first
 path=("$HOME/.local/bin" $path)
