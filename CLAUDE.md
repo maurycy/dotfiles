@@ -7,6 +7,19 @@ renders it into `~`, and editing a file here changes nothing until
 `private_`, `.tmpl` and the rest - are documented by `chezmoi help`,
 which is the authority on them, not this file.
 
+## Templates
+
+Non-trivial standalone concerns live in `.chezmoitemplates/<name>.zsh`
+and are pulled into `.zshrc` (or `.zprofile`) via
+`{{ template "<name>.zsh" . }}`. The history machinery, the prompt,
+the notes helpers, the per-tool toolchain snippets, the git
+ergonomics, and the Homebrew env are all wired that way today.
+Extract a block when it is complex enough to dominate reading the
+file, or scattered across more than a couple of insertion points;
+leave inline otherwise. The cost of an extra file is real (one more
+place to look), so the win has to be real too. The split is compile-
+time only - the rendered file and startup time are unchanged.
+
 ## Testing changes
 
 CI lives in `.github/workflows/validate.yml`: it renders the templates,
