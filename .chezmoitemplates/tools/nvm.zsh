@@ -21,13 +21,16 @@ if [ -d "$NVM_DIR/versions/node" ]; then
   }
   _nvm_resolve_alias default
   NODE_VER="$REPLY"
-  if [ -d "$NVM_DIR/versions/node/$NODE_VER" ]; then
+  # _is_safe_dir checks the actual bin dir we are about to prepend to PATH,
+  # not just the parent version directory.
+  if _is_safe_dir "$NVM_DIR/versions/node/$NODE_VER/bin"; then
     path=("$NVM_DIR/versions/node/$NODE_VER/bin" $path)
   else
     # newest installed version via glob: (/) dirs, (N) nullglob,
     # (On) numeric descending sort -> [1] is the latest
     _node_vers=( "$NVM_DIR"/versions/node/*(/Non) )
-    (( $#_node_vers )) && path=("${_node_vers[1]}/bin" $path)
+    (( $#_node_vers )) && _is_safe_dir "${_node_vers[1]}/bin" && \
+      path=("${_node_vers[1]}/bin" $path)
     unset _node_vers
   fi
   unset -f _nvm_resolve_alias
