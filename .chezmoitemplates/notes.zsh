@@ -2,6 +2,7 @@
 #   n            pick a note (newest first; type to filter, or type a new
 #                name and press enter to create it)
 #   n <name>     create or open $NOTES_DIR/<name>.md directly
+#   n cd         cd into $NOTES_DIR itself (the one name that is not a note)
 #   ns <query>   search notes; filename matches rank above content matches
 #   nf <query>   same as ns
 # ripgrep does the searching; fzf (when installed) makes n and ns/nf
@@ -16,6 +17,15 @@ export NOTES_DIR
 # matches and press enter to create it.
 n() {
   emulate -L zsh
+
+  # `n cd` is the one exception: instead of opening a note named "cd", it
+  # jumps the shell into $NOTES_DIR. cd in a function changes the calling
+  # shell's directory, which is the point. A real note called "cd" is the
+  # price - reach it with `n cd.md`, which falls through to the name path.
+  if [[ "$*" == cd ]]; then
+    mkdir -p "$NOTES_DIR" && cd "$NOTES_DIR"
+    return
+  fi
 
   if [[ -n "$*" ]]; then
     local name="${*// /-}"
