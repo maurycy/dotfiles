@@ -365,6 +365,9 @@ mupdate() {
   whence -w mupdate_local >/dev/null 2>&1 && { mupdate_local || true; }
 }
 
+# notes (n / ns / nf): topical markdown knowledge base
+{{ template "notes.zsh" . }}
+
 # rbenv (shims on PATH; `rbenv init` lazy-loaded on first `rbenv` call)
 if command -v rbenv >/dev/null 2>&1 || [ -d "$HOME/.rbenv" ]; then
   export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
