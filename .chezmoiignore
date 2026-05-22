@@ -2,7 +2,6 @@
 LICENSE
 README.md
 
-# Local-only, untracked (see .gitignore) - never apply
 TODO.md
 
 # macOS-only ignores (Linux files to skip on macOS)
