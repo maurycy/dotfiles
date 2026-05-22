@@ -24,6 +24,22 @@ _is_safe_source() {
   fi
 }
 
+# _is_safe_dir <path> - succeed only if <path> is a directory owned by the
+# current user, not a symlink, with no group/other write bit. used to gate
+# PATH prepends of home-resident directories (cargo, .local/bin, the per-tool
+# bin/shim dirs). same threat model as _is_safe_source - catch the accident,
+# not a hostile process - and CLAUDE.md notes that fpath and PATH are the
+# same kind of surface, so the bar matches.
+_is_safe_dir() {
+  emulate -L zsh
+  zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  local d=$1
+  [[ -d $d && ! -L $d && -O $d ]] || return 1
+  local -A s
+  zstat -H s -- "$d" 2>/dev/null || return 1
+  (( (s[mode] & 18) == 0 ))
+}
+
 # ensure <cache-path> holds the fresh stdout of <command>; regenerate it when
 # the cache is missing/empty, <trigger> is newer, or the cache is not safe to
 # source (symlink/foreign/loose perms). atomic write via mktemp.
@@ -73,4 +89,4 @@ _lazy_load() {
 
 # cargo: the env file only manipulates PATH - add the bin dir directly,
 # avoiding a source of an external script in every (incl. non-interactive) zsh
-[[ -d "$HOME/.cargo/bin" ]] && path=("$HOME/.cargo/bin" $path)
+_is_safe_dir "$HOME/.cargo/bin" && path=("$HOME/.cargo/bin" $path)

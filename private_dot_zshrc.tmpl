@@ -233,7 +233,7 @@ mupdate() {
 {{ template "tools/nvm.zsh" . }}
 
 # xdg PATH first
-path=("$HOME/.local/bin" $path)
+_is_safe_dir "$HOME/.local/bin" && path=("$HOME/.local/bin" $path)
 
 # emacs mode (EDITOR=vim defaults to vi mode)
 bindkey -e
