@@ -124,7 +124,7 @@ every executable on `PATH`; the first read of the `$commands` parameter
 builds it, and the first read after any `path=(...)` change rebuilds the
 whole thing by rescanning every directory on `PATH`. Consolidating the
 per-tool snippets into one block put uv's `$commands` read just after
-bun and gcloud had prepended to `PATH`, so the hash `zoxide` built
+gcloud had prepended to `PATH`, so the hash `zoxide` built
 seconds earlier was thrown away and built again - a second rescan of
 `/opt/homebrew/bin` and the rest, about 2ms, for code textually
 identical to what shipped before. Keep a `$commands` or `$+commands`

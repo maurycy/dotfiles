@@ -91,7 +91,7 @@ select-word-style bash
 # zoxide (cached; regenerated when the zoxide binary changes)
 (( $+commands[zoxide] )) && _cache_eval zoxide "$commands[zoxide]" zoxide init zsh
 # note: ~/.cargo/bin is added to PATH in .zshenv (runs before .zshrc)
-# note: nvm/rbenv/uv/bun/gcloud load from the consolidated toolchain
+# note: nvm/rbenv/uv/gcloud load from the consolidated toolchain
 # section further down (.chezmoitemplates/tools/).
 
 # functions
@@ -138,7 +138,6 @@ mupdate() {
   command -v rustup >/dev/null && { rustup update || return; }
 
   command -v rbenv >/dev/null && ! _is_brew_pkg rbenv && { rbenv update || true; }
-  command -v bun >/dev/null && ! _is_brew_pkg bun && { bun upgrade || true; }
   command -v nvm >/dev/null && { nvm cache clear || true; }
 
   command -v gh >/dev/null && gh auth status &>/dev/null && {
@@ -164,15 +163,14 @@ mupdate() {
 # each tool's full setup (env, PATH, lazy completion) lives in its own
 # .chezmoitemplates/tools/ file. two ordering rules, both load-bearing:
 #  - uv stays first. it reads $commands (the command hash); doing so
-#    before bun/gcloud/rbenv/nvm prepend to PATH keeps the hash zoxide
+#    before gcloud/rbenv/nvm prepend to PATH keeps the hash zoxide
 #    already built valid. move it after a PATH prepend and the next
 #    $commands access rebuilds the hash by rescanning all of PATH
 #    (~2ms, measured) - the whole point of this consolidation was to
 #    not regress startup.
-#  - bun/gcloud/rbenv/nvm then prepend to PATH; the last prepend wins
+#  - gcloud/rbenv/nvm then prepend to PATH; the last prepend wins
 #    the front, so ~/.local/bin (below) must stay after them all.
 {{ template "tools/uv.zsh" . }}
-{{ template "tools/bun.zsh" . }}
 {{ template "tools/gcloud.zsh" . }}
 {{ template "tools/rbenv.zsh" . }}
 {{ template "tools/nvm.zsh" . }}
