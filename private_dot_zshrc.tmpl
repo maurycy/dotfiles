@@ -185,7 +185,7 @@ _compinit_real() {
   zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
   zstyle ':completion:*:-command-:*' tag-order '!parameters'
   # gcloud completion needs compdef/bashcompinit, so it loads here too
-  [[ -f "$HOME/.local/google-cloud-sdk/completion.zsh.inc" ]] && \
+  _is_safe_source "$HOME/.local/google-cloud-sdk/completion.zsh.inc" && \
     source "$HOME/.local/google-cloud-sdk/completion.zsh.inc"
   local c
   for c in "${_compdef_queue[@]}"; do eval "compdef $c"; done
@@ -263,7 +263,7 @@ if (( $+commands[uv] )); then
 fi
 
 # google cloud sdk (completion.zsh.inc loads lazily inside _compinit_real)
-[ -f "$HOME/.local/google-cloud-sdk/path.zsh.inc" ] && . "$HOME/.local/google-cloud-sdk/path.zsh.inc"
+_is_safe_source "$HOME/.local/google-cloud-sdk/path.zsh.inc" && . "$HOME/.local/google-cloud-sdk/path.zsh.inc"
 
 # functions
 diff() {
