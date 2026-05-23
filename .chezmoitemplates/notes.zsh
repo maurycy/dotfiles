@@ -64,6 +64,18 @@ n() {
   esac                                                                          # 130: aborted
 }
 
+# nn - open today's daily note ($NOTES_DIR/daily/YYYY-MM-DD.md).
+# Delegates to `n`, which appends .md, creates parent dirs, and opens
+# $EDITOR. Date via zsh/datetime (no fork). Both `b:strftime` and
+# `p:EPOCHSECONDS` must be listed or the parameter stays unloaded.
+nn() {
+  emulate -L zsh
+  zmodload -F zsh/datetime b:strftime p:EPOCHSECONDS
+  local today
+  strftime -s today '%Y-%m-%d' "$EPOCHSECONDS"
+  n "daily/$today"
+}
+
 # <Tab> after n completes note names under $NOTES_DIR
 _notes_n() { _files -W "$NOTES_DIR" -g '*.md' }
 (( $+functions[compdef] )) && compdef _notes_n n
