@@ -60,7 +60,11 @@ _compinit_real() {
   emulate -L zsh
   unfunction compdef _compinit_real 2>/dev/null
   autoload -Uz compinit
-  if [[ -n ~/.zcompdump(#qN.mh+24) ]]; then
+  # fast path (compinit -C) trusts the dump and skips the fpath audit, so
+  # take it only if the dump is integrity-safe and fresh. _is_safe_source
+  # also refuses a missing/symlinked/foreign/loose-perm file - in any of
+  # those cases fall through to full compinit, which will rebuild it.
+  if [[ -n ~/.zcompdump(#qN.mh+24) ]] || ! _is_safe_source ~/.zcompdump; then
     compinit
   else
     compinit -C
