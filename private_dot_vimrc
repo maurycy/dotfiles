@@ -53,6 +53,12 @@ endif
 set mouse=c			" disable mouse
 au FileType python set softtabstop=4 | set shiftwidth=4
 
+" Auto-wrap text while typing in the prompts/research directory (uses textwidth).
+augroup promptsResearchAutowrap
+  au!
+  autocmd BufRead,BufNewFile */prompts/research/* setlocal formatoptions+=t
+augroup END
+
 " show existing tab with 4 spaces width
 set tabstop=4
 " when indenting with '>', use 4 spaces width
