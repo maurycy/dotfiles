@@ -53,10 +53,12 @@ endif
 set mouse=c			" disable mouse
 au FileType python set softtabstop=4 | set shiftwidth=4
 
-" Auto-wrap text while typing in the prompts/research directory (uses textwidth).
+" Auto-wrap text while typing in the prompts/research directory.
+" formatoptions+=t needs a non-zero textwidth, which markdown files lack by
+" default (tw=78 is only set for FileType text), so set it here too.
 augroup promptsResearchAutowrap
   au!
-  autocmd BufRead,BufNewFile */prompts/research/* setlocal formatoptions+=t
+  autocmd BufRead,BufNewFile */prompts/research/* setlocal textwidth=78 formatoptions+=t
 augroup END
 
 " show existing tab with 4 spaces width
