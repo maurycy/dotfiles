@@ -11,6 +11,14 @@
 : "${NOTES_DIR:=$HOME/src/github.com/maurycy/prompts/research}"
 export NOTES_DIR
 
+# _notes_edit - open a note in $EDITOR with cwd set to $NOTES_DIR for the
+# duration of the edit, so the whole knowledge base is reachable from
+# inside the editor (:e, fzf, relative links). The subshell restores the
+# caller's cwd on exit automatically; the file path passed in is absolute,
+# so the editor opens the right note regardless of cwd. One fork per edit -
+# negligible next to launching $EDITOR, and this is interactive, not startup.
+_notes_edit() { ( cd "$NOTES_DIR" && "${EDITOR:-vim}" "$1" ) }
+
 # n - open a note. with a name: create or open it (spaces become hyphens,
 # ".md" is appended, parent folders are created). without a name: an fzf
 # picker over notes newest-first - pick one, or type a name nothing
@@ -32,7 +40,7 @@ n() {
     [[ "$name" == *.md ]] || name+=".md"
     local target="$NOTES_DIR/$name"
     mkdir -p "${target:h}"
-    "${EDITOR:-vim}" "$target"
+    _notes_edit "$target"
     return
   fi
 
@@ -59,7 +67,7 @@ n() {
   local rc=$?
   local -a lines=( "${(@f)out}" )
   case $rc in
-    0) [[ -n "${lines[2]}" ]] && "${EDITOR:-vim}" "$NOTES_DIR/${lines[2]}" ;;  # picked
+    0) [[ -n "${lines[2]}" ]] && _notes_edit "$NOTES_DIR/${lines[2]}" ;;  # picked
     1) [[ -n "${lines[1]}" ]] && n "${lines[1]}" ;;                            # typed a new name
   esac                                                                          # 130: aborted
 }
