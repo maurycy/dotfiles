@@ -45,9 +45,17 @@ alias less='less -RX'
 
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
 if command -v rsync >/dev/null; then
-  alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
-  alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
-  alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+  # Migrating to openrsync (Apple's /usr/bin/rsync, ships since macOS Sequoia).
+  # openrsync lacks: -X/--xattrs, -A/--acls, -N/--crtimes, -s/--protect-args,
+  # --fileflags, --force-change. On macOS the Apple option -E (--extended-attributes)
+  # already covers xattrs + resource forks + ACLs, so -aE replaces -aAX.
+  # Old GPL-rsync (brew) aliases kept below for reference:
+  #   alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
+  #   alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
+  #   alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+  alias f-rsync='rsync -E -v -a -x --delete -l -u -H -P'
+  alias my-rsync='rsync -avhzE'
+  alias cc-rsync='rsync -v -E -H -go --numeric-ids -D -l -rtpx --ignore-errors'
 fi
 
 # completion: compinit is deferred to the first <Tab> so it never touches the
