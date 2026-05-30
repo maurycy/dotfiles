@@ -45,9 +45,19 @@ alias less='less -RX'
 
 # /usr/local/bin/rsync -s -E -v -a -x --delete -l -u -H --exclude-from=$EXCLUDE -P -e ssh $SRC $DEST
 if command -v rsync >/dev/null; then
+{{- if eq .chezmoi.os "darwin" }}
+  # macOS ships openrsync as /usr/bin/rsync (since Sequoia). openrsync lacks
+  # -X/--xattrs, -A/--acls, -N/--crtimes, -s/--protect-args, --fileflags and
+  # --force-change; Apple's -E (--extended-attributes) covers xattrs + resource
+  # forks + ACLs, so -aE replaces -aAX. Linux keeps the full GPL-rsync flags.
+  alias f-rsync='rsync -E -v -a -x --delete -l -u -H -P'
+  alias my-rsync='rsync -avhzE'
+  alias cc-rsync='rsync -v -E -H -go --numeric-ids -D -l -rtpx --ignore-errors'
+{{- else }}
   alias f-rsync='rsync -s -E -v -a -x --delete -l -u -H -P'
   alias my-rsync='rsync -avhzrXANteEgoD --fileflags'
   alias cc-rsync='rsync -v -A -X -H -go --numeric-ids -D -l -rtpx -N --fileflags --force-change --protect-args --ignore-errors'
+{{- end }}
 fi
 
 # completion: compinit is deferred to the first <Tab> so it never touches the
