@@ -21,6 +21,10 @@
   Do not commit, unless asked explicitly.
 </commits>
 
+<reference-source>
+  ~/src/github.com/{owner}/{repo} holds ~1200 upstream clones (Linux, XNU, PostgreSQL, LLVM...).
+</reference-source>
+
 <principles>
   <style>No emojis. No em dashes - use hyphens or colons instead.</style>
 
