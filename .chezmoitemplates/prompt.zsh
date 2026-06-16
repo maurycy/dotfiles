@@ -19,7 +19,13 @@ _set_prompt() {
   # double any '%' in the vcs string so a branch name cannot inject a prompt
   # escape (PROMPT_SUBST is off, so this is the only render-time vector left)
   local vcs=${vcs_info_msg_0_//\%/%%}
-  if (( ${COLUMNS:-80} < 120 )); then
+  # Pick the form by how wide the long prompt would actually render, not by a
+  # fixed COLUMNS cut-off: a long path or branch overflows even a wide window.
+  # ${(%)...} expands the prompt escapes in-process (no fork), so ${#rendered}
+  # is the visible width; fall back to the short form past ~70% of the line.
+  local long="%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%m %d ${vcs} %# "
+  local rendered=${(%)long}
+  if (( ${#rendered} > ${COLUMNS:-80} * 7 / 10 )); then
     PS1="%(?..[%?] )%n@%B%m%b %1~ ${vcs} %# "
   else
     PS1="%(?..[%?] )%D{%Y-%m-%dT%H:%M:%S.%N%z} %n@%B%m%b %d ${vcs} %# "
