@@ -151,7 +151,7 @@ mupdate() {
   command -v gcloud >/dev/null && { gcloud components update || return; }
 
   if command -v brew >/dev/null; then
-    brew update && brew upgrade -y && brew cleanup --scrub --prune=all || return
+    brew update && brew upgrade -y --greedy && brew cleanup --scrub --prune=all || return
   fi
 
   if command -v apt >/dev/null; then
