@@ -1,5 +1,9 @@
 <claude-instructions>
 
+<brevity>
+  Less is more.
+</brevity>
+
 <python>
   Use uv for everything: uv run, uv pip, uv venv. Do not forget about uv run --python VERSION --with PACKAGE.
   If not required explicitly, do not install any packages but use uvx.
