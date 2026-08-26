@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   chezmoi-validate:
     runs-on: ${{ matrix.os }}
@@ -13,7 +16,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install chezmoi
         run: sh -c "$(curl -fsLS get.chezmoi.io)"
       - name: Render templates
