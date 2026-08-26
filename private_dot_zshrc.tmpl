@@ -165,7 +165,7 @@ mupdate() {
 
   local cooldown_days=7
   command -v cargo-install-update >/dev/null && {
-    cargo install-update -a --cooldown "${cooldown_days}d" || return
+    cargo install-update -a --locked --cooldown "${cooldown_days}d" || return
   }
   command -v npm >/dev/null && {
     zmodload zsh/datetime
