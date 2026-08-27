@@ -14,7 +14,7 @@ Arguments:
 
 Options:
   --90          simple 90s-style rename (lowercase, underscores, strip junk)
-  --dms         DMS archival rename: {YYYYMMDD}{HHMMSS}{mmm}_{Description}.{ext}
+  --dms         DMS archival rename (default): {YYYYMMDD}{HHMMSS}{mmm}_{Description}.{ext}
   --model M     LLM model (default: gemini/gemini-3-flash-preview)
   --pages N     number of PDF pages to send to LLM (default: 3)
   --dry-run     show renames without executing
@@ -23,14 +23,14 @@ Options:
   --parallel N  run N files concurrently (default: 1)
   --help        show this help
 
-Default mode: metadata extraction via LLM for PDFs, 90s-style fallback for non-PDFs.
+Default mode: DMS archival naming for PDFs, 90s-style fallback for non-PDFs.
 --90 mode: pure filename normalization for all files, no LLM calls.
 --dms mode: archival naming for scanned documents. Date from LLM, time from
   file mtime, description from LLM. Non-PDFs fall back to 90s-style.
   --90 and --dms are mutually exclusive.
 
 Examples:
-  llm-rename document.pdf                  # LLM metadata rename
+  llm-rename document.pdf                  # DMS archival rename
   llm-rename --90 document.pdf             # simple normalization
   llm-rename --dms document.pdf            # DMS archival rename
   llm-rename --dry-run /path/to/dir/       # preview all renames
@@ -41,7 +41,9 @@ EOF
 }
 
 MODE_90=0
-MODE_DMS=0
+MODE_DMS=1
+EXPLICIT_90=0
+EXPLICIT_DMS=0
 MODEL="gemini/gemini-3-flash-preview"
 PAGES=3
 DRY_RUN=0
@@ -62,10 +64,14 @@ while [ $# -gt 0 ]; do
       usage
       ;;
     --90)
+      EXPLICIT_90=1
       MODE_90=1
+      MODE_DMS=0
       shift
       ;;
     --dms)
+      EXPLICIT_DMS=1
+      MODE_90=0
       MODE_DMS=1
       shift
       ;;
@@ -124,7 +130,7 @@ if [ -z "$TARGET" ]; then
 fi
 
 # Validate mutually exclusive modes
-if [ "$MODE_90" = "1" ] && [ "$MODE_DMS" = "1" ]; then
+if [ "$EXPLICIT_90" = "1" ] && [ "$EXPLICIT_DMS" = "1" ]; then
   echo "ERROR: --90 and --dms are mutually exclusive" >&2
   exit 1
 fi
