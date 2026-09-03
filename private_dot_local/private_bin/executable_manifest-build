@@ -1,0 +1,47 @@
+#!/bin/bash
+# manifest-build: manifest katalogu/dysku w formacie hd-registry, Linux i macOS.
+#
+# Format linii (identyczny na obu systemach):
+#   <mode> <nlink> <user> <group> <size> <mtime.0000000000> <md5>  <sciezka>
+# czyli GNU: find -printf '%m %n %u %g %s %T@ ' -exec md5sum {} \;
+#
+# Uzycie: manifest-build <katalog> <LABEL> [outdir]
+#   LABEL  = serial dysku (konwencja registry), np. VAGENEPL
+#   outdir = domyslnie ~/hd-registry
+# Wynik: <outdir>/<LABEL>.find-ls-md5.<TS>.txt  (zapis do .part, rename po sukcesie)
+#        <outdir>/<LABEL>.find-ls-md5.<TS>.err   (bledy find/md5, pusty = OK)
+#        <outdir>/<LABEL>.find-ls-md5.<TS>.done  (liczba linii + czas)
+# Tylko odczyt. Jeden atomowy przebieg - nie skladac recznie.
+
+set -u
+if [ $# -lt 2 ]; then echo "usage: $(basename "$0") <dir> <LABEL> [outdir]" >&2; exit 2; fi
+DIR=$1; LABEL=$2; OUT=${3:-$HOME/hd-registry}
+[ -d "$DIR" ] || { echo "brak katalogu: $DIR" >&2; exit 2; }
+mkdir -p "$OUT"
+TS=$(date +%s)
+M="$OUT/$LABEL.find-ls-md5.$TS.txt"
+START=$(date '+%F %T')
+
+case "$(uname -s)" in
+  Linux)
+    find "$DIR" -type f -printf '%m %n %u %g %s %T@ ' -exec md5sum {} \; > "$M.part" 2> "$M.err"
+    ;;
+  Darwin)
+    # stat: %Lp=mode oktalnie, %l=nlink, %Su/%Sg=nazwy, %z=rozmiar, %m=mtime (calkowite sekundy)
+    find "$DIR" -type f -exec sh -c '
+      for f in "$@"; do
+        s=$(stat -f "%Lp %l %Su %Sg %z %m" "$f") || { echo "stat: $f" >&2; continue; }
+        h=$(md5 -q "$f") || { echo "md5: $f" >&2; continue; }
+        printf "%s.0000000000 %s  %s\n" "$s" "$h" "$f"
+      done' _ {} + > "$M.part" 2> "$M.err"
+    ;;
+  *) echo "nieobslugiwany system: $(uname -s)" >&2; exit 2 ;;
+esac
+RC=$?
+if [ $RC -ne 0 ]; then echo "find zakonczony bledem rc=$RC; zostawiam $M.part" >&2; exit $RC; fi
+mv "$M.part" "$M"
+N=$(wc -l < "$M" | tr -d ' ')
+E=$(wc -l < "$M.err" | tr -d ' ')
+printf 'start=%s end=%s lines=%s errors=%s\n' "$START" "$(date '+%F %T')" "$N" "$E" > "$M.done"
+echo "$M  ($N plikow, $E bledow)"
+[ "$E" -eq 0 ] || { echo "UWAGA: bledy w $M.err - manifest NIEPELNY" >&2; exit 1; }

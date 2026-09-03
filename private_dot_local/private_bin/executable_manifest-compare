@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""manifest-compare: porownanie dwoch manifestow hd-registry (format manifest-build).
+
+Tryby:
+  path (domyslny)  klucz = sciezka wzgledna; dla wspolnych sciezek porownuje md5, rozmiar
+                   i (z --mtime) czas modyfikacji. Wykrywa braki po nazwie - to lapie
+                   np. urwany readdir, czego tryb md5 nie widzi.
+  md5              klucz = tresc; ktore md5 sa tylko w A / tylko w B (niezaleznie od nazw).
+  both             path + dla brakow po sciezce sprawdza, czy tresc istnieje po drugiej
+                   stronie pod inna nazwa (przeniesione/duplikat) czy naprawde jej nie ma.
+
+Sciezki: prefiks montowania jest usuwany automatycznie (najdluzszy wspolny katalog
+w kazdym manifescie) albo jawnie: --strip-a /mnt/X/ --strip-b /mnt/Y/.
+--map STARY=NOWY (wielokrotnie) podmienia pierwszy segment sciezki, np. '#92274689=da'.
+Kod wyjscia: 0 = brak roznic, 1 = roznice, 2 = blad.
+"""
+import argparse, os, sys, collections
+
+def parse(path, strip, maps):
+    d = {}
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            p = line.split()
+            if len(p) < 7 or len(p[6]) != 32: continue
+            try: int(p[6], 16)
+            except ValueError: continue
+            i = line.find(p[6]); full = line[i + 34:].rstrip("\n")
+            d[full] = (p[6], int(p[4]), int(float(p[5])))
+    if not d: sys.exit(f"pusty/nierozpoznany manifest: {path}")
+    if strip is None:
+        strip = os.path.commonpath(list(d)) if len(d) > 1 else os.path.dirname(next(iter(d)))
+        if not strip.endswith("/"): strip += "/"
+    out = {}
+    for full, v in d.items():
+        rel = full[len(strip):] if full.startswith(strip) else full
+        if maps:
+            head, sep, tail = rel.partition("/")
+            if head in maps: rel = maps[head] + sep + tail
+        out[rel] = v
+    return out, strip
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("a"); ap.add_argument("b")
+    ap.add_argument("--mode", choices=["path", "md5", "both"], default="path")
+    ap.add_argument("--strip-a"); ap.add_argument("--strip-b")
+    ap.add_argument("--map", action="append", default=[], metavar="OLD=NEW")
+    ap.add_argument("--mtime", action="store_true", help="porownuj tez mtime (sekundy)")
+    ap.add_argument("-n", type=int, default=20, help="ile przykladow wypisac (domyslnie 20)")
+    args = ap.parse_args()
+    maps = dict(m.split("=", 1) for m in args.map)
+    A, sa = parse(args.a, args.strip_a, maps); B, sb = parse(args.b, args.strip_b, maps)
+    print(f"A: {len(A):>9} plikow  prefiks {sa}\nB: {len(B):>9} plikow  prefiks {sb}")
+    diffs = 0
+    def show(title, items):
+        nonlocal diffs
+        print(f"\n== {title}: {len(items)}"); diffs += len(items)
+        for x in sorted(items)[:args.n]: print("   ", x)
+        if len(items) > args.n: print(f"    ... (+{len(items) - args.n})")
+
+    if args.mode in ("path", "both"):
+        only_a = set(A) - set(B); only_b = set(B) - set(A); both = set(A) & set(B)
+        md = [k for k in both if A[k][0] != B[k][0]]
+        sz = [k for k in both if A[k][1] != B[k][1]]
+        mt = [k for k in both if A[k][2] != B[k][2]] if args.mtime else []
+        print(f"\nwspolne sciezki: {len(both)}")
+        if args.mode == "both":
+            bm = collections.defaultdict(list); am = collections.defaultdict(list)
+            for k, v in B.items(): bm[v[0]].append(k)
+            for k, v in A.items(): am[v[0]].append(k)
+            moved_a = {k for k in only_a if A[k][0] in bm}; lost_a = only_a - moved_a
+            moved_b = {k for k in only_b if B[k][0] in am}; lost_b = only_b - moved_b
+            show("tylko w A, tresc JEST w B pod inna nazwa (przeniesione/duplikat)", [f"{k}  == B:{bm[A[k][0]][0]}" for k in moved_a])
+            show("tylko w A, tresci BRAK w B", lost_a)
+            show("tylko w B, tresc JEST w A pod inna nazwa", [f"{k}  == A:{am[B[k][0]][0]}" for k in moved_b])
+            show("tylko w B, tresci BRAK w A", lost_b)
+        else:
+            show("tylko w A (brak sciezki w B)", only_a); show("tylko w B (brak sciezki w A)", only_b)
+        show("ta sama sciezka, inny md5", [f"{k}  {A[k][0][:8]} -> {B[k][0][:8]}" for k in md])
+        show("ta sama sciezka, inny rozmiar", [f"{k}  {A[k][1]} -> {B[k][1]}" for k in sz])
+        if args.mtime: show("ta sama sciezka, inny mtime", [f"{k}  {A[k][2]} -> {B[k][2]}" for k in mt])
+    if args.mode == "md5":
+        ca = collections.Counter(v[0] for v in A.values()); cb = collections.Counter(v[0] for v in B.values())
+        pa = collections.defaultdict(list); pb = collections.defaultdict(list)
+        for k, v in A.items(): pa[v[0]].append(k)
+        for k, v in B.items(): pb[v[0]].append(k)
+        oa = set(ca) - set(cb); ob = set(cb) - set(ca)
+        print(f"\nunikalnych md5: A={len(ca)} B={len(cb)} wspolnych={len(set(ca) & set(cb))}")
+        show("md5 tylko w A", [f"{h[:8]}  {pa[h][0]}" for h in oa]); show("md5 tylko w B", [f"{h[:8]}  {pb[h][0]}" for h in ob])
+        dup = [f"{h[:8]}  A x{ca[h]} B x{cb[h]}  {pa[h][0]}" for h in set(ca) & set(cb) if ca[h] != cb[h]]
+        show("wspolne md5, rozna liczba kopii", dup)
+    print("\nWERDYKT:", "IDENTYCZNE" if diffs == 0 else f"ROZNICE ({diffs})")
+    sys.exit(0 if diffs == 0 else 1)
+
+if __name__ == "__main__": main()
