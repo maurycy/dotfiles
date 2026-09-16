@@ -282,7 +282,7 @@ get_metadata() {
     return 1
   fi
 
-  printf '%s' "$result"
+  printf '%s' "$result" | jq -c 'if type == "array" then .[0] else . end'
 }
 
 # Extract DMS metadata from PDF via LLM
@@ -319,7 +319,7 @@ get_dms_metadata() {
     return 1
   fi
 
-  printf '%s' "$result"
+  printf '%s' "$result" | jq -c 'if type == "array" then .[0] else . end'
 }
 
 # Convert DMS metadata JSON to archival filename
@@ -605,7 +605,7 @@ get_metadata() {
   if ! printf '%s' "\$result" | jq . >/dev/null 2>&1; then
     return 1
   fi
-  printf '%s' "\$result"
+  printf '%s' "\$result" | jq -c 'if type == "array" then .[0] else . end'
 }
 
 metadata_to_filename() {
@@ -673,7 +673,7 @@ get_dms_metadata() {
   if ! printf '%s' "\$result" | jq . >/dev/null 2>&1; then
     return 1
   fi
-  printf '%s' "\$result"
+  printf '%s' "\$result" | jq -c 'if type == "array" then .[0] else . end'
 }
 
 dms_to_filename() {
