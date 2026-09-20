@@ -171,7 +171,7 @@ write belong there. Do not prepend broad or writable directories to
 check, and the fast path already uses `-C`, which trusts the dump - safe
 only as long as `fpath` is.
 
-Keep file modes tight. The history file, its archive, and the shell-init
+Keep file modes tight. The history file and the shell-init
 caches are `0600`, their directories `0700`. `umask 077` around the code
 that creates them handles new files; a file that already exists keeps
 its old mode, so it gets an explicit `chmod` too. Anything the config
