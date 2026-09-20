@@ -5,7 +5,7 @@ setopt EXTENDED_GLOB
 # deduplicate PATH and fpath
 typeset -U path fpath
 
-# history: HISTFILE setup, daily archival, secret-dropping zshaddhistory hook
+# history: HISTFILE setup, daily 3-day trim, secret-dropping zshaddhistory hook
 {{ template "history.zsh" . }}
 
 # env
