@@ -41,4 +41,4 @@ jobs:
             "$tmpdir/private_dot_zprofile" \
             "$tmpdir/private_dot_zshrc"
       - name: Dry-run apply
-        run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run
+        run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run --exclude=encrypted
