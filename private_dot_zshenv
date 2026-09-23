@@ -90,3 +90,8 @@ _lazy_load() {
 # cargo: the env file only manipulates PATH - add the bin dir directly,
 # avoiding a source of an external script in every (incl. non-interactive) zsh
 _is_safe_dir "$HOME/.cargo/bin" && path=("$HOME/.cargo/bin" $path)
+
+export SHELL_SESSIONS_DISABLE=1
+export NODE_REPL_HISTORY=''
+export REDISCLI_HISTFILE=/dev/null
+export PYTHON_HISTORY=/dev/null

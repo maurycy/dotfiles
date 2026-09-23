@@ -1,3 +1,17 @@
 .bash_history
 .lftprc
 .gitmessage
+.python_history
+.psql_history
+.irb_history
+.node_repl_history
+.rediscli_history
+.duckdb_history
+.viminfo
+.zsh_sessions
+.rnd
+.DS_Store
+.idlerc
+.safety
+.cortex-debug
+.profile
