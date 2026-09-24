@@ -1,1 +1,4 @@
-{{ include (printf ".hosts/%s.zsh.asc" .chezmoi.hostname) | decrypt }}
+{{- $blob := printf ".hosts/%s.zsh.asc" .chezmoi.hostname -}}
+{{- if stat (joinPath .chezmoi.sourceDir $blob) -}}
+{{- include $blob | decrypt -}}
+{{- end -}}
