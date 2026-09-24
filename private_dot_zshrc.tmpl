@@ -142,7 +142,7 @@ mupdate() {
 
   command -v fastfetch >/dev/null && fastfetch
   command -v chezmoi >/dev/null && { chezmoi update || return; }
-  command -v uv >/dev/null && { uv self update || return; }
+  command -v uv >/dev/null && { uv self update && uv cache prune || return; }
 
   if whence -w backup >/dev/null 2>&1; then
     backup || return
