@@ -13,3 +13,8 @@ TODO.md
 # Linux-only ignores (macOS files to skip on Linux)
 {{ if eq .chezmoi.os "linux" }}
 {{ end }}
+
+# ~/.zshrc.local only on hosts with an encrypted blob in .hosts/
+{{ if not (stat (joinPath .chezmoi.sourceDir ".hosts" (printf "%s.zsh.asc" .chezmoi.hostname))) }}
+.zshrc.local
+{{ end }}
