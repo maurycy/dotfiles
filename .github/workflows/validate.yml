@@ -36,9 +36,7 @@ jobs:
           tmpdir="$(mktemp -d)"
           for f in private_dot_zprofile.tmpl private_dot_zshrc.tmpl; do
             ./bin/chezmoi execute-template --source . < "$f" > "$tmpdir/${f%.tmpl}"
+            zsh -n "$tmpdir/${f%.tmpl}"
           done
-          zsh -n \
-            "$tmpdir/private_dot_zprofile" \
-            "$tmpdir/private_dot_zshrc"
       - name: Dry-run apply
         run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run --exclude=encrypted
