@@ -486,7 +486,7 @@ collect_files() {
   dir="$1"
   for f in "$dir"/*; do
     [ -f "$f" ] || continue
-    echo "$f"
+    printf '%s\n' "$f"
   done
   if [ "$RECURSIVE" = "1" ]; then
     for d in "$dir"/*/; do
@@ -765,5 +765,5 @@ WORKEREOF
     uvx --with "$LLM_PLUGIN" llm --version > /dev/null 2>&1
   fi
 
-  printf '%s\n' "$FILE_LIST" | xargs -P "$PARALLEL" -I {} "$WORKER" {}
+  printf '%s\n' "$FILE_LIST" | tr '\n' '\0' | xargs -0 -P "$PARALLEL" -I {} "$WORKER" {}
 fi
