@@ -53,7 +53,6 @@
 [merge]
 	# conflictstyle: use 'diff3' if git version < 2.35
 	conflictstyle = zdiff3
-	summary = true
 
 [rebase]
 	autoSquash = true
