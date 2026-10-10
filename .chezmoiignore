@@ -14,6 +14,15 @@ TODO.md
 {{ if eq .chezmoi.os "linux" }}
 {{ end }}
 
+# restic secrets are Kyber-encrypted; skip them where gpg predates PQC (2.5)
+{{ $gpg := "0.0.0" }}
+{{ if lookPath "gpg" }}
+{{   $gpg = output "gpg" "--version" | regexFind "[0-9]+\\.[0-9]+\\.[0-9]+" }}
+{{ end }}
+{{ if semverCompare "< 2.5.0" $gpg }}
+.config/restic
+{{ end }}
+
 # ~/.zshrc.local only on hosts with an encrypted blob in .hosts/
 {{ if not (stat (joinPath .chezmoi.sourceDir ".hosts" (printf "%s.zsh.asc" .chezmoi.hostname))) }}
 .zshrc.local
