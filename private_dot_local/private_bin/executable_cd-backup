@@ -159,6 +159,34 @@ mapfile_bad_regions_before_limit() {
     printf '%d' "$_count"
 }
 
+# End of UDF data in sectors: partition start + length, plus a trailing anchor (AVDP) if present.
+# "Volume Total Space" reports only the partition length, so it misses the sectors before the partition.
+udf_data_end_sectors() {
+    perl -e '
+        my ($dev, $bs) = @ARGV;
+        open(my $fh, "<:raw", $dev) or exit 1;
+        sub rd { my $n = shift; sysseek($fh, $n * $bs, 0) or return; my $b; (sysread($fh, $b, $bs) // 0) == $bs or return; $b }
+        sub avdp { my $n = shift; my $d = rd($n); $d && unpack("v", $d) == 2 && unpack("V", substr($d, 12, 4)) == $n }
+        avdp(256) or exit 1;
+        my ($len, $loc) = unpack("V V", substr(rd(256), 16, 8));
+        my $end = 0;
+        for my $i (0 .. $len / $bs - 1) {
+            my $d = rd($loc + $i) or last;
+            my $t = unpack("v", $d);
+            if ($t == 5) { my ($s, $l) = unpack("V V", substr($d, 188, 8)); $end = $s + $l if $s + $l > $end }
+            last if $t == 8;
+        }
+        $end or exit 1;
+        $end++ if avdp($end);
+        print $end;
+    ' "$1" "$2" 2>/dev/null
+}
+
+# Recorded track size in blocks as reported by the drive (covers padding to the end of the last ECC block)
+drutil_used_blocks() {
+    drutil status 2>/dev/null | awk '/Space Used:/ { for (i = 1; i <= NF; i++) if ($i == "blocks:") { print $(i + 1); exit } }'
+}
+
 cleanup_hdiutil_output() {
     rm -f "$TMPDIR/image" "$TMPDIR"/image.*
 }
@@ -286,6 +314,8 @@ if { [ -z "$VOL_SIZE" ] || [ "$VOL_SIZE" -eq 0 ] 2>/dev/null; } then
     fi
 fi
 
+RAW_DISK="/dev/r${DISK_ID}"
+
 if [ -n "$VOL_SIZE" ] && [ "$VOL_SIZE" -gt 0 ] 2>/dev/null; then
     PART_SIZE="$VOL_SIZE"
     printf 'Volume size: %s bytes (disc size: %s bytes)\n' "$VOL_SIZE" "${DISK_SIZE:-unknown}"
@@ -293,10 +323,33 @@ else
     PART_SIZE="$DISK_SIZE"
 fi
 
-RAW_DISK="/dev/r${DISK_ID}"
+# DATA_SIZE: bytes that must be captured. READ_SIZE: bytes to image (recorded track, if known).
+DATA_SIZE="$PART_SIZE"
+UDF_END=$(udf_data_end_sectors "$RAW_DISK" "$BLOCK_SIZE")
+if [ -n "$UDF_END" ] && [ "$UDF_END" -gt 0 ] 2>/dev/null; then
+    UDF_BYTES=$((UDF_END * BLOCK_SIZE))
+    printf 'UDF data end: sector %s (%s bytes)\n' "$UDF_END" "$UDF_BYTES"
+    if [ -z "$DATA_SIZE" ] || [ "$UDF_BYTES" -gt "$DATA_SIZE" ] 2>/dev/null; then
+        DATA_SIZE="$UDF_BYTES"
+    fi
+fi
+
+READ_SIZE="$DATA_SIZE"
+TRACK_BLOCKS=$(drutil_used_blocks)
+if [ -n "$TRACK_BLOCKS" ] && [ "$TRACK_BLOCKS" -gt 0 ] 2>/dev/null; then
+    TRACK_BYTES=$((TRACK_BLOCKS * BLOCK_SIZE))
+    printf 'Recorded track (drutil): %s blocks (%s bytes)\n' "$TRACK_BLOCKS" "$TRACK_BYTES"
+    if [ "$TRACK_BYTES" -ge "${DATA_SIZE:-0}" ] && { [ -z "$DISK_SIZE" ] || [ "$TRACK_BYTES" -le "$DISK_SIZE" ]; }; then
+        READ_SIZE="$TRACK_BYTES"
+    else
+        warn "drutil track size $TRACK_BYTES is outside [$DATA_SIZE, ${DISK_SIZE:-?}] - ignoring"
+    fi
+fi
+PART_SIZE="$READ_SIZE"
+
 printf 'Raw device: %s\n' "$RAW_DISK"
 printf 'Device block size: %s bytes\n' "$BLOCK_SIZE"
-printf 'Partition size: %s bytes\n' "${PART_SIZE:-unknown}"
+printf 'Image size: %s bytes (data: %s bytes)\n' "${PART_SIZE:-unknown}" "${DATA_SIZE:-unknown}"
 
 # --- Phase 3: Create temp working directory ---
 
@@ -374,9 +427,17 @@ phase "C" "hdiutil imaging (Apple format)"
 cleanup_hdiutil_output
 HDIUTIL_SRC="$DISK"
 HDIUTIL_STATUS=1
+HDIUTIL_SKIPPED=0
 
-if hdiutil create -srcdevice "$HDIUTIL_SRC" -format UDTO -o "$TMPDIR/image" 2>&1; then
+# hdiutil always reads the whole device; on unfinalized media the device is larger than
+# the recorded track, so it runs into blank space and fails with an I/O error
+if [ -n "$DISK_SIZE" ] && [ -n "$PART_SIZE" ] && [ "$DISK_SIZE" -gt "$PART_SIZE" ] 2>/dev/null; then
+    printf 'Skipping hdiutil: device reports %s bytes but only %s bytes are recorded\n' "$DISK_SIZE" "$PART_SIZE"
+    HDIUTIL_SKIPPED=1
+elif hdiutil create -srcdevice "$HDIUTIL_SRC" -format UDTO -o "$TMPDIR/image" 2>&1; then
     HDIUTIL_STATUS=0
+elif [ "$PARTITION" = "$DISK" ]; then
+    cleanup_hdiutil_output
 else
     warn "hdiutil failed on whole disk, trying partition device"
     cleanup_hdiutil_output
@@ -391,7 +452,7 @@ fi
 if [ "$HDIUTIL_STATUS" -eq 0 ] && [ -f "$HDIUTIL_IMAGE" ]; then
     HDIUTIL_OK=1
     printf 'hdiutil complete (source: %s)\n' "$HDIUTIL_SRC"
-else
+elif [ "$HDIUTIL_SKIPPED" -eq 0 ]; then
     if [ "$HDIUTIL_STATUS" -eq 0 ]; then
         warn "hdiutil reported success but did not leave a CDR image"
     fi
@@ -423,7 +484,7 @@ SKIP_PASS2=0
 if [ -f "$DDRESCUE_MAP" ] && [ -n "$PART_SIZE" ]; then
     RESCUED_AFTER_P1=$(mapfile_rescued_bytes "$DDRESCUE_MAP")
     printf 'After pass 1: rescued %s bytes (partition: %s bytes)\n' "$RESCUED_AFTER_P1" "$PART_SIZE"
-    if mapfile_covers_range "$DDRESCUE_MAP" "$PART_SIZE"; then
+    if mapfile_covers_range "$DDRESCUE_MAP" "$DATA_SIZE"; then
         printf 'Data track fully covered - skipping pass 2 (remaining errors are beyond the data range)\n'
         SKIP_PASS2=1
     fi
@@ -441,19 +502,19 @@ fi
 
 # Evaluate ddrescue results
 if [ -f "$DDRESCUE_IMAGE" ] && [ -f "$DDRESCUE_MAP" ]; then
-    BAD_REGIONS=$(awk '!/^#/ && NF >= 3 && $3 != "+" { count++ } END { print count + 0 }' "$DDRESCUE_MAP")
+    BAD_REGIONS=$(awk '/^#/ { next } !status++ { next } NF >= 3 && $3 != "+" { count++ } END { print count + 0 }' "$DDRESCUE_MAP")
     RESCUED_BYTES=$(mapfile_rescued_bytes "$DDRESCUE_MAP")
-    if [ -n "$PART_SIZE" ] && mapfile_covers_range "$DDRESCUE_MAP" "$PART_SIZE"; then
-        BAD_REGIONS_IN_DATA=$(mapfile_bad_regions_before_limit "$DDRESCUE_MAP" "$PART_SIZE")
+    if [ -n "$PART_SIZE" ] && mapfile_covers_range "$DDRESCUE_MAP" "$DATA_SIZE"; then
+        BAD_REGIONS_IN_DATA=$(mapfile_bad_regions_before_limit "$DDRESCUE_MAP" "$DATA_SIZE")
         BAD_REGIONS_BEYOND_DATA=$((BAD_REGIONS - BAD_REGIONS_IN_DATA))
         if [ "$BAD_REGIONS_BEYOND_DATA" -gt 0 ]; then
-            printf 'ddrescue: %s unreadable regions beyond the data track\n' "$BAD_REGIONS_BEYOND_DATA"
+            printf 'ddrescue: %s unrecovered regions beyond the data track (not needed)\n' "$BAD_REGIONS_BEYOND_DATA"
         fi
-        printf 'ddrescue: rescued full data range (%s bytes)\n' "$PART_SIZE"
+        printf 'ddrescue: rescued full data range (%s bytes)\n' "$DATA_SIZE"
         DDRESCUE_OK=1
     elif [ "$BAD_REGIONS" -gt 0 ]; then
         if [ -n "$PART_SIZE" ]; then
-            BAD_REGIONS_IN_DATA=$(mapfile_bad_regions_before_limit "$DDRESCUE_MAP" "$PART_SIZE")
+            BAD_REGIONS_IN_DATA=$(mapfile_bad_regions_before_limit "$DDRESCUE_MAP" "$DATA_SIZE")
             warn "ddrescue: $BAD_REGIONS_IN_DATA unrecovered regions within data track"
         else
             warn "ddrescue: $BAD_REGIONS unrecovered regions"
@@ -486,15 +547,23 @@ if [ -f "$DDRESCUE_MAP" ]; then
     fi
 fi
 
-DD_CMD="dd if=$RAW_DISK of=$DD_IMAGE bs=$BLOCK_SIZE"
-if [ -n "$DD_COUNT" ]; then
-    DD_CMD="$DD_CMD count=$DD_COUNT"
-else
-    DD_CMD="$DD_CMD conv=noerror,sync"
-    printf 'No ddrescue data extent available - reading full disc with conv=noerror,sync\n'
-fi
+# Read in 64-sector chunks (as ddrescue -c 64), then the remaining sectors one by one,
+# so dd never reads past the data extent
+DD_CHUNK=64
+run_dd() {
+    if [ -z "$DD_COUNT" ]; then
+        printf 'No ddrescue data extent available - reading full disc with conv=noerror,sync\n'
+        dd if="$RAW_DISK" of="$DD_IMAGE" bs="$BLOCK_SIZE" conv=noerror,sync
+        return
+    fi
+    _chunks=$((DD_COUNT / DD_CHUNK))
+    _rest=$((DD_COUNT - _chunks * DD_CHUNK))
+    dd if="$RAW_DISK" of="$DD_IMAGE" bs=$((BLOCK_SIZE * DD_CHUNK)) count="$_chunks" || return 1
+    [ "$_rest" -eq 0 ] && return 0
+    dd if="$RAW_DISK" of="$DD_IMAGE" bs="$BLOCK_SIZE" skip=$((_chunks * DD_CHUNK)) seek=$((_chunks * DD_CHUNK)) count="$_rest" conv=notrunc
+}
 
-if eval "$DD_CMD" 2>&1; then
+if run_dd 2>&1; then
     printf 'dd complete\n'
     DD_OK=1
 else
@@ -615,7 +684,7 @@ fi
 # ddrescue mapfile summary
 if [ -f "$FINAL_DIR/${FINAL_ID}.ddrescue.iso.map" ]; then
     printf '\nddrescue mapfile summary:\n'
-    grep '^#' "$FINAL_DIR/${FINAL_ID}.ddrescue.iso.map" | tail -5
+    grep -v '^#' "$FINAL_DIR/${FINAL_ID}.ddrescue.iso.map"
 fi
 
 # --- Phase I: Mount images and verify file integrity ---
@@ -624,6 +693,14 @@ FILES_DIR="$FINAL_DIR/${FINAL_ID}"
 
 if [ -d "$FILES_DIR" ]; then
     phase "I" "Verifying images against extracted files"
+
+    # Sorted "sha256  ./path" list; non-zero exit if any file could not be read
+    hash_tree() {
+        (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)
+    }
+
+    FILES_SUMS=$(mktemp /tmp/cd-backup-sums.XXXXXX)
+    hash_tree "$FILES_DIR" > "$FILES_SUMS"
 
     verify_image() {
         _label="$1"
@@ -644,7 +721,12 @@ if [ -d "$FILES_DIR" ]; then
 
         printf '  Mounted at: %s\n' "$_mnt"
 
-        _diff=$(rsync -rcn --delete --itemize-changes "$_mnt/" "$FILES_DIR/" 2>&1)
+        _src_sums=$(hash_tree "$_mnt")
+        _src_status=$?
+        _diff=$(printf '%s\n' "$_src_sums" | diff - "$FILES_SUMS" 2>&1)
+        if [ "$_src_status" -ne 0 ]; then
+            _diff=$(printf 'read errors while hashing image files\n%s' "$_diff")
+        fi
 
         if [ -z "$_diff" ]; then
             printf '  %s: files match extracted copy\n' "$_label"
@@ -664,6 +746,7 @@ if [ -d "$FILES_DIR" ]; then
     verify_image "ddrescue ISO" "$FINAL_DIR/${FINAL_ID}.ddrescue.iso"
     verify_image "dd ISO" "$FINAL_DIR/${FINAL_ID}.dd.iso"
     verify_image "hdiutil CDR" "$FINAL_DIR/${FINAL_ID}.cdr"
+    rm -f "$FILES_SUMS"
 else
     printf '\nSkipping image verification (no extracted files to compare against)\n'
 fi
