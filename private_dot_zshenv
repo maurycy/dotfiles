@@ -102,6 +102,15 @@ if [[ -r /opt/homebrew/etc/ca-certificates/cert.pem ]]; then
 elif [[ -r /etc/ssl/certs/ca-certificates.crt ]]; then
   _tls_ca_bundle=/etc/ssl/certs/ca-certificates.crt
 fi
+# Curated subset of that bundle, built by tls-ca-trim from
+# ~/.config/tls/roots.txt: 11 roots cover every host in daily use (measured
+# 2026-10-21), the other ~177 are attack surface only. It is data we read
+# from $HOME, so it passes the same integrity gate as anything we source.
+_tls_curated="${XDG_CONFIG_HOME:-$HOME/.config}/tls/ca-bundle.pem"
+if [[ -s $_tls_curated ]] && _is_safe_source "$_tls_curated"; then
+  _tls_ca_bundle="$_tls_curated"
+fi
+unset _tls_curated
 if [[ -n $_tls_ca_bundle ]]; then
   export SSL_CERT_FILE="$_tls_ca_bundle"
   # An empty value disables the additional OpenSSL CA directory. Unsetting

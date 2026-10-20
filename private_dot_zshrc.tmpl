@@ -161,6 +161,9 @@ mupdate() {
     sudo aptitude purge '~c' 2>/dev/null
   fi
 
+  # rebuild the curated CA bundle from the freshly updated ca-certificates
+  command -v tls-ca-trim >/dev/null && { tls-ca-trim || return; }
+
   command -v rustup >/dev/null && { rustup update || return; }
 
   local cooldown_days=7

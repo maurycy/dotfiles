@@ -1,0 +1,57 @@
+#!/bin/bash
+# tls-ca-trim: build a curated CA bundle from the maintained Mozilla bundle
+# (brew's on macOS, the distro's on Linux), keeping only the roots listed in
+# ~/.config/tls/roots.txt. .zshenv prefers the result for SSL_CERT_FILE and
+# friends, so every CLI client trusts a dozen roots instead of ~190.
+# Run after ca-certificates updates; mupdate does. Usage: tls-ca-trim [--source FILE]
+set -euo pipefail
+umask 077
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/tls"
+list="$cfg/roots.txt"
+out="$cfg/ca-bundle.pem"
+src=""
+if [ "${1:-}" = "--source" ] && [ -n "${2:-}" ]; then
+  src="$2"
+else
+  for f in /opt/homebrew/etc/ca-certificates/cert.pem /etc/ssl/certs/ca-certificates.crt; do
+    [ -r "$f" ] && { src="$f"; break; }
+  done
+fi
+[ -n "$src" ] && [ -r "$src" ] || { echo "tls-ca-trim: no source bundle found" >&2; exit 1; }
+[ -r "$list" ] || { echo "tls-ca-trim: missing $list" >&2; exit 1; }
+# LibreSSL prints subjects as /C=US/O=..., OpenSSL 3 as C=US, O=...; the
+# allowlist uses the latter, so insist on OpenSSL 3.
+ossl=""
+for o in /opt/homebrew/opt/openssl@3/bin/openssl openssl; do
+  if command -v "$o" >/dev/null 2>&1 && "$o" version 2>/dev/null | grep -q '^OpenSSL 3'; then
+    ossl="$o"; break
+  fi
+done
+[ -n "$ossl" ] || { echo "tls-ca-trim: OpenSSL 3 not found" >&2; exit 1; }
+mkdir -p "$cfg"
+chmod 700 "$cfg"
+tmp=$(mktemp "$out.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+"$ossl" crl2pkcs7 -nocrl -certfile "$src" | "$ossl" pkcs7 -print_certs | awk -v list="$list" '
+  BEGIN {
+    while ((getline l < list) > 0) {
+      if (l ~ /^[[:space:]]*(#|$)/) continue
+      want[l] = 1
+    }
+  }
+  /^subject=/ { subj = substr($0, 9); keep = (subj in want); if (keep) seen[subj] = 1 }
+  /^-----BEGIN CERTIFICATE-----/ { inblk = 1 }
+  inblk && keep { print }
+  /^-----END CERTIFICATE-----/ { inblk = 0; keep = 0 }
+  END {
+    for (s in want) if (!(s in seen)) print "tls-ca-trim: listed root not in source: " s > "/dev/stderr"
+  }
+' > "$tmp"
+kept=$(grep -c '^-----BEGIN CERTIFICATE-----' "$tmp" || true)
+total=$(grep -c '^-----BEGIN CERTIFICATE-----' "$src" || true)
+[ "$kept" -gt 0 ] || { echo "tls-ca-trim: no listed root found in $src, bundle left untouched" >&2; exit 1; }
+if [ -L "$out" ]; then rm -f "$out"; fi
+mv -f "$tmp" "$out"
+trap - EXIT
+chmod 600 "$out"
+echo "tls-ca-trim: $out: kept $kept of $total roots from $src"
