@@ -33,6 +33,7 @@ jobs:
           sudo apt-get install -y zsh
       - name: Check rendered Zsh syntax
         run: |
+          zsh -n private_dot_zshenv
           tmpdir="$(mktemp -d)"
           for f in private_dot_zprofile.tmpl private_dot_zshrc.tmpl; do
             ./bin/chezmoi execute-template --source . < "$f" > "$tmpdir/${f%.tmpl}"
