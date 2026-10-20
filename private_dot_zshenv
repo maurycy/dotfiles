@@ -93,20 +93,32 @@ _is_safe_dir "$HOME/.cargo/bin" && path=("$HOME/.cargo/bin" $path)
 
 export SHELL_SESSIONS_DISABLE=1
 export NODE_REPL_HISTORY=''
-# 2026-10 eMudhra CA compromise (mozilla bug 2083449): node's bundled root
-# store still trusts the affected roots and the upstream fix is pending.
-# --use-openssl-ca makes node start from OpenSSL's default store, which the
-# nvm build leaves empty, and NODE_EXTRA_CA_CERTS then supplies a maintained
-# bundle: brew's on macOS, the distro's on Linux. lives here so scripts and
-# `ssh host cmd` get it too. containment check keeps nested shells from
-# stacking the flag. drop both once node ships the distrust.
+# 2026-10 eMudhra CA compromise (mozilla bug 2083449): use a maintained
+# bundle for curl, git, Python and node, including non-interactive shells.
+# The bundle itself still needs ca-certificates updates (see README).
+_tls_ca_bundle=''
 if [[ -r /opt/homebrew/etc/ca-certificates/cert.pem ]]; then
-  export NODE_EXTRA_CA_CERTS=/opt/homebrew/etc/ca-certificates/cert.pem
+  _tls_ca_bundle=/opt/homebrew/etc/ca-certificates/cert.pem
 elif [[ -r /etc/ssl/certs/ca-certificates.crt ]]; then
-  export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+  _tls_ca_bundle=/etc/ssl/certs/ca-certificates.crt
 fi
-if [[ -n "${NODE_EXTRA_CA_CERTS-}" && " ${NODE_OPTIONS-} " != *" --use-openssl-ca "* ]]; then
-  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-openssl-ca"
+if [[ -n $_tls_ca_bundle ]]; then
+  export SSL_CERT_FILE="$_tls_ca_bundle"
+  # An empty value disables the additional OpenSSL CA directory. Unsetting
+  # it would restore the compiled-in directory and potentially old roots.
+  export SSL_CERT_DIR=''
+  export CURL_CA_BUNDLE="$_tls_ca_bundle"
+  export GIT_SSL_CAINFO="$_tls_ca_bundle"
+  export REQUESTS_CA_BUNDLE="$_tls_ca_bundle"
+  # Replace inherited extra CAs too, so they cannot restore old roots.
+  export NODE_EXTRA_CA_CERTS="$_tls_ca_bundle"
+  # Temporary until node ships the distrust. SSL_CERT_FILE selects the
+  # OpenSSL store explicitly, rather than assuming the nvm default is empty.
+  if [[ " ${NODE_OPTIONS-} " != *" --use-openssl-ca "* ]]; then
+    export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-openssl-ca"
+  fi
 fi
+unset _tls_ca_bundle
+[[ -x /opt/homebrew/opt/curl/bin/curl ]] && export HOMEBREW_FORCE_BREWED_CURL=1
 export REDISCLI_HISTFILE=/dev/null
 export PYTHON_HISTORY=/dev/null

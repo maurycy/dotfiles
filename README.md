@@ -34,3 +34,23 @@ chezmoi update
 
 * This is [zsh](https://en.wikipedia.org/wiki/Z_shell) first, but without [oh my zsh](https://ohmyz.sh/), which I find too heavy and too slow.
 * Optimized for speed. I start new terminal windows probably thousands times a day, so every millisecond counts.
+
+# TLS certificates
+
+`.zshenv` selects the Homebrew CA bundle on macOS or the Debian/Ubuntu CA bundle on Linux.
+Curl, Git, Python with OpenSSL, HTTPX, Requests, and Node use this bundle through environment variables.
+This configuration replaces inherited CA paths and disables the additional OpenSSL CA directory.
+
+Programs with explicit CA configuration or disabled environment support can use a different trust store.
+Programs outside the zsh process tree do not receive these exports.
+Apple's system Python with [LibreSSL](https://docs.python.org/3.10/library/ssl.html#ssl.get_default_verify_paths) ignores `SSL_CERT_FILE` and `SSL_CERT_DIR` for its default SSL context.
+For Python HTTPS clients, use a Python build with OpenSSL or pass the CA bundle explicitly.
+
+Keep the selected `ca-certificates` package current.
+On macOS, install Homebrew's `curl` and `ca-certificates` packages before use.
+After `chezmoi apply`, start a new shell and restart dependent processes.
+
+For the [eMudhra incident](https://github.com/advisories/GHSA-6q48-6c7w-9gw2), update `certifi` to `2026.10.19` or later in each Python environment.
+Include installed uv tools, cached uvx environments, project environments, and container images.
+The exports do not update those packages.
+For Linux tools written in Go, install binaries built with Go 1.27.3, 1.26.10, or a later patched version.
