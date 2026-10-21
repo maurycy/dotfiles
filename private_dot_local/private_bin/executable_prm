@@ -1,24 +1,42 @@
 #!/bin/bash
 set -eu
+umask 077
 
-if command -v shred >/dev/null 2>&1; then
-  delete() { shred -u "$1"; }
-else
-  delete() { rm "$1"; }
-fi
+# Overwriting is best effort: SSDs, snapshots, and copy-on-write filesystems
+# can retain earlier data. Never overwrite a symlink target or other hard link.
+eraser=''
+for candidate in shred gshred; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    eraser="$candidate"
+    break
+  fi
+done
+delete() {
+  local file=$1 meta
+  if [ -n "$eraser" ] && [ -f "$file" ] && [ ! -L "$file" ]; then
+    meta=$(stat -c '%u %h' -- "$file" 2>/dev/null || stat -f '%u %l' "$file")
+    if [ "$meta" = "$EUID 1" ]; then
+      "$eraser" -n 1 -u -- "$file" && return
+    fi
+  fi
+  rm -f -- "$file"
+}
 
 mode=remove
 dry=0
+targets=()
 
-for arg in "$@"; do
-  case "$arg" in
+while [ $# -gt 0 ]; do
+  case "$1" in
     -h|--help)
       printf 'usage: prm [options] [file ...]\n'
       printf '\n'
-      printf '  prm file [file ...]   securely delete files and all identical copies in .\n'
+      printf '  prm file [file ...]   delete files and all identical copies in .\n'
+      printf '  prm --files-only     delete only the named paths; do not scan for copies\n'
       printf '  prm -d, --duplicates  find duplicate files in . and delete all but one copy\n'
       printf '  prm -n, --dry         show what would be deleted without deleting\n'
       printf '  prm -h, --help        show this help\n'
+      printf '\nUses shred when available, without a secure-erasure guarantee.\n'
       exit 0
       ;;
     -d|--duplicates)
@@ -27,8 +45,43 @@ for arg in "$@"; do
     -n|--dry)
       dry=1
       ;;
+    --files-only)
+      mode=files
+      ;;
+    --)
+      shift
+      targets+=( "$@" )
+      break
+      ;;
+    -*)
+      printf 'prm: unknown option: %s\n' "$1" >&2
+      exit 1
+      ;;
+    *) targets+=( "$1" ) ;;
   esac
+  shift
 done
+
+if [ "$mode" = files ]; then
+  [ ${#targets[@]} -gt 0 ] || exit 0
+  for target in "${targets[@]}"; do
+    if [ "$dry" -eq 1 ]; then
+      printf 'would del %s\n' "$target"
+    else
+      delete "$target"
+    fi
+  done
+  exit 0
+fi
+
+seen=''
+ref=''
+cleanup() {
+  [ -z "$seen" ] || delete "$seen"
+  [ -z "$ref" ] || delete "$ref"
+  return 0
+}
+trap cleanup EXIT
 
 if [ "$mode" = duplicates ]; then
   seen=$(mktemp)
@@ -62,17 +115,18 @@ if [ "$mode" = duplicates ]; then
     printf '%s\t%s\n' "$file_size" "$file" >> "$seen"
   done
 
-  rm "$seen"
+  delete "$seen"
+  seen=''
   exit 0
 fi
 
-if [ $# -eq 0 ]; then
+if [ ${#targets[@]} -eq 0 ]; then
   printf 'usage: prm [options] [file ...]\n' >&2
   exit 1
 fi
 
-for target in "$@"; do
-  if [ ! -f "$target" ]; then
+for target in "${targets[@]}"; do
+  if [ ! -f "$target" ] || [ -L "$target" ]; then
     printf 'prm: %s: not a regular file\n' "$target" >&2
     continue
   fi
@@ -83,6 +137,7 @@ for target in "$@"; do
 
   find . -type f -print0 | while IFS= read -r -d '' candidate; do
     [ -f "$candidate" ] || continue
+    [ "$candidate" != "$ref" ] || continue
     candidate_size=$(wc -c < "$candidate")
     [ "$candidate_size" -eq "$target_size" ] || continue
     if cmp -s "$ref" "$candidate"; then
@@ -95,5 +150,6 @@ for target in "$@"; do
     fi
   done
 
-  rm "$ref"
+  delete "$ref"
+  ref=''
 done

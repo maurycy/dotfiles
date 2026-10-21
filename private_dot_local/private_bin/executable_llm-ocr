@@ -1,4 +1,5 @@
 #!/bin/sh
+umask 077
 # OCR for scanned pages via LLM
 # See also: pdf-split (split a PDF into individual pages)
 
@@ -411,7 +412,9 @@ while ! mkdir "$lockdir" 2>/dev/null; do
 done
 
 echo "$$" > "$lockdir/pid"
+tmp_out=''
 cleanup_lock() {
+  [ -z "$tmp_out" ] || prm --files-only -- "$tmp_out"
   rm -rf "$lockdir" 2>/dev/null || true
 }
 trap cleanup_lock EXIT HUP INT TERM
@@ -425,18 +428,23 @@ if [ "$FORCE" = "0" ]; then
 fi
 
 out="${base}.${config_tag}.$(date +%s).txt"
-tmp_out="${out}.tmp.$$"
+tmp_out=$(mktemp "${out}.tmp.XXXXXX") || exit 1
 
 echo "Processing: $f -> $out (${size} bytes)"
-if uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm -m "$MODEL" \
+if uvx ${LLM_PLUGIN:+--with $LLM_PLUGIN} llm --no-log -m "$MODEL" \
    $LLM_OPTS \
    "$PROMPT" \
    -a "$f" > "$tmp_out"; then
-  mv "$tmp_out" "$out"
+  # Replacing a symlink must not follow it, including a link to a directory.
+  if [ -L "$out" ]; then rm -f -- "$out"; fi
+  [ ! -d "$out" ] || { echo "ERROR: output is a directory: $out" >&2; exit 1; }
+  mv "$tmp_out" "$out" || exit 1
+  tmp_out=''
   echo "DONE: $f -> $out"
 else
   rc=$?
-  rm -f "$tmp_out"
+  prm --files-only -- "$tmp_out"
+  tmp_out=''
   echo "ERROR: $f (llm failed: exit $rc)" >&2
   exit "$rc"
 fi

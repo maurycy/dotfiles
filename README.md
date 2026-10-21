@@ -35,6 +35,33 @@ chezmoi update
 * This is [zsh](https://en.wikipedia.org/wiki/Z_shell) first, but without [oh my zsh](https://ohmyz.sh/), which I find too heavy and too slow.
 * Optimized for speed. I start new terminal windows probably thousands times a day, so every millisecond counts.
 
+# History and document privacy
+
+Zsh uses an eight-hour cutoff for disk history and a 100,000-entry limit.
+Expiry runs at startup, at each prompt, and on exit. A cached deadline avoids repeated scans before the oldest entry expires.
+Sleeping or closed shells do not run a cleanup timer. An open shell can retain older entries in memory.
+All configured shells share a lock for history updates. Automatic exit-time writes are disabled to prevent expired entries from returning.
+Restart existing shells after applying this change so that every writer uses the same lock.
+
+Document tools pass `--no-log` to LLM and create new files with private permissions.
+This does not remove existing LLM logs or change existing document permissions.
+
+`prm --files-only -- path...` removes only the named files, without searching for identical copies.
+It uses `shred` or `gshred` when available and falls back to `rm`.
+It does not overwrite symlink targets, multiply linked files, or files owned by another user.
+History cleanup and document scratch-file cleanup use this mode.
+Overwriting does not guarantee erasure from SSDs, copy-on-write filesystems, snapshots, or backups.
+
+# SSH defaults
+
+SSH adds software keys to the agent for one hour. Agent forwarding and connection sharing are disabled by default.
+Host blocks in `~/.ssh/config.d/` can enable connection sharing where subsequent sessions can reuse authentication.
+Both `ControlMaster` and `ControlPath` must be set in those blocks.
+
+For managed hosts, verify each host key through a trusted channel and record it in `known_hosts`.
+Then add `StrictHostKeyChecking yes` to the corresponding host block.
+These defaults retain the current identity file. A migration to Secretive or hardware keys requires separate provisioning and login checks.
+
 # TLS certificates
 
 `.zshenv` selects the Homebrew CA bundle on macOS or the Debian/Ubuntu CA bundle on Linux.

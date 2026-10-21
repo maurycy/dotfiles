@@ -5,7 +5,7 @@ setopt EXTENDED_GLOB
 # deduplicate PATH and fpath
 typeset -U path fpath
 
-# history: HISTFILE setup, daily 3-day trim, secret-dropping zshaddhistory hook
+# history: HISTFILE setup, eight-hour retention, secret-dropping zshaddhistory hook
 {{ template "history.zsh" . }}
 
 # env
@@ -71,15 +71,21 @@ _compinit_real() {
   emulate -L zsh
   unfunction compdef _compinit_real 2>/dev/null
   autoload -Uz compinit
-  # fast path (compinit -C) trusts the dump and skips the fpath audit, so
-  # take it only if the dump is integrity-safe and fresh. _is_safe_source
-  # also refuses a missing/symlinked/foreign/loose-perm file - in any of
-  # those cases fall through to full compinit, which will rebuild it.
-  if [[ -n ~/.zcompdump(#qN.mh+24) ]] || ! _is_safe_source ~/.zcompdump; then
-    compinit
-  else
-    compinit -C
-  fi
+  # Always audit fpath. Ordinary compinit can load an existing unsafe dump,
+  # so -D disables both loading and writing when the integrity check fails.
+  local dump="$HOME/.zcompdump" oldumask
+  oldumask=$(umask)
+  umask 077
+  {
+    if _is_safe_source "$dump" strict || \
+       { [[ ! -e $dump && ! -L $dump && ! -e $dump.zwc && ! -L $dump.zwc ]] && _is_safe_parent "$dump"; }; then
+      compinit -d "$dump"
+    else
+      compinit -D
+    fi
+  } always {
+    umask "$oldumask"
+  }
   zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
   zstyle ':completion:*:-command-:*' tag-order '!parameters'
   # drain deferred post-compinit hooks (e.g. gcloud completion, which

@@ -3,10 +3,12 @@ Include config.d/*
 Host *
     IdentitiesOnly yes
     IdentityFile ~/.ssh/id_ed25519
-    AddKeysToAgent yes
+    AddKeysToAgent 1h
+    ForwardAgent no
     HashKnownHosts yes
     ServerAliveInterval 30
     ServerAliveCountMax 3
-    ControlMaster auto
-    ControlPath ~/.ssh/cm/%C
-    ControlPersist 10m
+    # Enable connection sharing only in explicit host blocks in config.d.
+    # ControlPath none also prevents reuse of an existing master.
+    ControlMaster no
+    ControlPath none

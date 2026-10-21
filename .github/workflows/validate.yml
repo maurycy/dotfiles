@@ -20,17 +20,31 @@ jobs:
         with:
           persist-credentials: false
       - name: Install chezmoi
-        run: sh -c "$(curl -fsLS get.chezmoi.io)"
+        run: |
+          case "$RUNNER_OS/$RUNNER_ARCH" in
+            Linux/X64) asset=chezmoi-linux-amd64; sha=56db674bb755c6655d67df3dec3e6727631d1291f5fc799d3f1aded6d0e56472 ;;
+            macOS/ARM64) asset=chezmoi-darwin-arm64; sha=13cb1bd4290607765a39b187b18ffb6b4a36cbccf4b5a966bbebd72bc3319f8b ;;
+            macOS/X64) asset=chezmoi-darwin-amd64; sha=190118a03910231476c3110ff18176724f48a8ff110c5bb48c60de68da3c3098 ;;
+            *) echo "Unsupported runner: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p bin
+          curl --proto '=https' --proto-redir '=https' -fsSL \
+            "https://github.com/twpayne/chezmoi/releases/download/v2.73.3/$asset" -o bin/chezmoi
+          printf '%s  bin/chezmoi\n' "$sha" | shasum -a 256 -c -
+          chmod 755 bin/chezmoi
       - name: Render templates
         run: |
           for f in *.tmpl .chezmoiignore; do
             [ -f "$f" ] && ./bin/chezmoi execute-template --source . < "$f" > /dev/null
           done
-      - name: Install Zsh
+      - name: Install test dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y zsh
+          sudo apt-get install -y zsh ripgrep
+      - name: Install ripgrep on macOS
+        if: runner.os == 'macOS'
+        run: command -v rg || brew install ripgrep
       - name: Check rendered Zsh syntax
         run: |
           zsh -n private_dot_zshenv
@@ -41,3 +55,5 @@ jobs:
           done
       - name: Dry-run apply
         run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run --exclude=encrypted
+      - name: Check security behavior in temporary homes
+        run: python3 -m unittest discover -s tests -v
