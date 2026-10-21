@@ -17,3 +17,7 @@ C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication Root R46
 C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication Root E46
 C=US, O=Amazon, CN=Amazon Root CA 1
 C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., CN=Go Daddy Root Certificate Authority - G2
+# 2026-10-21: Cloudflare's DoH endpoints (cloudflare-dns.com, one.one.one.one)
+# chain to SSL.com; needed for curl --doh-url. Own Cloudflare-fronted domains
+# still chain to GTS, so this is the only SSL.com root measured in use.
+C=US, ST=Texas, L=Houston, O=SSL Corporation, CN=SSL.com Root Certification Authority ECC
