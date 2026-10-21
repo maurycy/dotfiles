@@ -21,17 +21,8 @@ jobs:
           persist-credentials: false
       - name: Install chezmoi
         run: |
-          case "$RUNNER_OS/$RUNNER_ARCH" in
-            Linux/X64) asset=chezmoi-linux-amd64; sha=56db674bb755c6655d67df3dec3e6727631d1291f5fc799d3f1aded6d0e56472 ;;
-            macOS/ARM64) asset=chezmoi-darwin-arm64; sha=13cb1bd4290607765a39b187b18ffb6b4a36cbccf4b5a966bbebd72bc3319f8b ;;
-            macOS/X64) asset=chezmoi-darwin-amd64; sha=190118a03910231476c3110ff18176724f48a8ff110c5bb48c60de68da3c3098 ;;
-            *) echo "Unsupported runner: $RUNNER_OS/$RUNNER_ARCH" >&2; exit 1 ;;
-          esac
-          mkdir -p bin
-          curl --proto '=https' --proto-redir '=https' -fsSL \
-            "https://github.com/twpayne/chezmoi/releases/download/v2.73.3/$asset" -o bin/chezmoi
-          printf '%s  bin/chezmoi\n' "$sha" | shasum -a 256 -c -
-          chmod 755 bin/chezmoi
+          curl --proto '=https' --proto-redir '=https' -fsSL https://get.chezmoi.io -o "$RUNNER_TEMP/install-chezmoi.sh"
+          sh "$RUNNER_TEMP/install-chezmoi.sh"
       - name: Render templates
         run: |
           for f in *.tmpl .chezmoiignore; do
