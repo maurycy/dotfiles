@@ -160,7 +160,16 @@ class Hardening(unittest.TestCase):
         self.assertEqual(list(outside.iterdir()), [])
 
     def test_compinit_never_loads_rejected_dump(self):
-        self.zsh('autoload -Uz compinit; compinit')
+        # Runner images can contain writable system completion directories.
+        # Use real Zsh functions in a private fpath, keeping compaudit enabled.
+        completion = self.home / "completion"
+        completion.mkdir(mode=0o700)
+        sources = self.zsh('for name in compinit compaudit compdump compinstall; do '
+                           'files=( $^fpath/$name(N) ); print -r -- "$files[1]"; done')
+        for name in sources.stdout.splitlines():
+            shutil.copyfile(name, completion / Path(name).name)
+        setup = 'fpath=("$HOME/completion"); '
+        self.zsh(setup + 'autoload -Uz compinit; compinit')
         dump = self.home / ".zcompdump"
         with dump.open("a") as stream:
             stream.write('\nprint EXECUTED > "$HOME/marker"\n')
@@ -168,10 +177,13 @@ class Hardening(unittest.TestCase):
         text = (REPO / "private_dot_zshrc.tmpl").read_text()
         function = text[text.index("_compinit_real() {"):text.index("\nautoload -U select-word-style")]
         self.file("compinit.zsh", function)
-        self.zsh('source "$REPO/private_dot_zshenv"; '
+        self.zsh(setup + 'source "$REPO/private_dot_zshenv"; '
                  'typeset -a _compdef_queue _post_compinit_hooks; '
                  'source ./compinit.zsh; _compinit_real')
         self.assertFalse((self.home / "marker").exists())
+        # Verify that ordinary compinit would load this exact rejected dump.
+        self.zsh(setup + 'autoload -Uz compinit; compinit')
+        self.assertTrue((self.home / "marker").exists())
 
     def setup_notes(self):
         notes = self.root / "notes'quoted"
