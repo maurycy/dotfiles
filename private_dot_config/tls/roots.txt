@@ -1,0 +1,19 @@
+# Root CAs the curated TLS bundle keeps. One subject per line, exactly as
+# `openssl pkcs7 -print_certs` (OpenSSL 3) prints it, minus "subject=".
+# Measured 2026-10-21 against 38 hosts in daily use (github, ghcr, npm,
+# pypi, brew, google, apple, anthropic, cloudflare, purelymail, yubico,
+# crates, go proxy, kernel.org, tailscale, dropbox, banks, carriers):
+# these 11 roots out of 188 in the Mozilla bundle anchor all of them.
+# A host under a root not listed here fails loudly with a TLS error:
+# add the root and run `tls-ca-trim`.
+C=US, O=Google Trust Services LLC, CN=GTS Root R4
+C=US, O=Internet Security Research Group, CN=ISRG Root X1
+C=US, O=Internet Security Research Group, CN=ISRG Root X2
+C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert Global Root G2
+C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert Global Root G3
+OU=GlobalSign Root CA - R3, O=GlobalSign, CN=GlobalSign
+C=BE, O=GlobalSign nv-sa, CN=GlobalSign Root R46
+C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication Root R46
+C=GB, O=Sectigo Limited, CN=Sectigo Public Server Authentication Root E46
+C=US, O=Amazon, CN=Amazon Root CA 1
+C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., CN=Go Daddy Root Certificate Authority - G2
