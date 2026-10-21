@@ -1,4 +1,5 @@
 #!/bin/sh
+umask 077
 # llm-archive - archive documents by date using LLM vision
 # style inspired by https://get.chezmoi.io
 
@@ -149,7 +150,7 @@ file_exists_in_dest() {
 # Extract date from document using LLM
 extract_date() {
 	file="$1"
-	uvx llm -m "${LLM_MODEL}" \
+	uvx llm --no-log -m "${LLM_MODEL}" \
 		"Extract when the document was created, in the ISO-8601 (YYYY-MM-DD) format. Return only the date." \
 		-a "${file}" </dev/null 2>&1 | tr -d '[:space:]' || printf ''
 }

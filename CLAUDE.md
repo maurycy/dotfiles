@@ -165,11 +165,11 @@ home path - route it through `_cache_file` / `_cache_eval`, which caches
 and then validates.
 
 `fpath` and `PATH` are the same kind of surface. A function autoloaded
-from `fpath` is code, so only directories you own and nobody else can
-write belong there. Do not prepend broad or writable directories to
-`PATH`. And leave `compinit` alone: `-u` and `-i` skip its security
-check, and the fast path already uses `-C`, which trusts the dump - safe
-only as long as `fpath` is.
+from `fpath` is code. Its directories must have trusted owners and permissions.
+Do not prepend broad or writable directories to `PATH`.
+Keep the `compinit` audit enabled. Do not add `-C` or `-u`.
+An unsafe dump requires `compinit -D`, which skips both its load and its write.
+Ordinary `compinit` can load a dump that our integrity check rejected.
 
 Keep file modes tight. The history file and the shell-init
 caches are `0600`, their directories `0700`. `umask 077` around the code

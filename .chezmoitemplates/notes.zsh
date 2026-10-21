@@ -17,7 +17,7 @@ export NOTES_DIR
 # caller's cwd on exit automatically; the file path passed in is absolute,
 # so the editor opens the right note regardless of cwd. One fork per edit -
 # negligible next to launching $EDITOR, and this is interactive, not startup.
-_notes_edit() { ( cd "$NOTES_DIR" && "${EDITOR:-vim}" "$1" ) }
+_notes_edit() { ( cd "$NOTES_DIR" && "${EDITOR:-vim}" -- "$1" ) }
 
 # n - open a note. with a name: create or open it (spaces become hyphens,
 # ".md" is appended, parent folders are created). without a name: an fzf
@@ -56,16 +56,16 @@ n() {
     return
   fi
 
-  local preview="cat '$NOTES_DIR'/{}"
+  local preview='cat -- "$NOTES_DIR"/{}'
   command -v bat >/dev/null && \
-    preview="bat --style=numbers --color=always '$NOTES_DIR'/{}"
+    preview='bat --style=numbers --color=always -- "$NOTES_DIR"/{}'
 
   local out
-  out="$(printf '%s\n' "${rel[@]}" \
-    | fzf --no-sort --print-query --prompt='note> ' \
+  out="$(printf '%s\0' "${rel[@]}" \
+    | fzf --read0 --print0 --no-sort --print-query --prompt='note> ' \
           --preview="$preview" --preview-window='right,60%')"
   local rc=$?
-  local -a lines=( "${(@f)out}" )
+  local -a lines=( "${(@0)out}" )
   case $rc in
     0) [[ -n "${lines[2]}" ]] && _notes_edit "$NOTES_DIR/${lines[2]}" ;;  # picked
     1) [[ -n "${lines[1]}" ]] && n "${lines[1]}" ;;                            # typed a new name
@@ -98,6 +98,9 @@ if command -v rg >/dev/null; then
       print -u2 "notes: \$NOTES_DIR not found: $NOTES_DIR"
       return 1
     }
+    # Search rows use tabs and newlines as separators. Filenames with these
+    # characters remain accessible through n, whose picker uses NUL records.
+    [[ $NOTES_DIR != *$'\t'* && $NOTES_DIR != *$'\n'* ]] || return 1
 
     local query="$*"
     local -a rows
@@ -105,22 +108,25 @@ if command -v rg >/dev/null; then
 
     if [[ -z "$query" ]]; then
       # no query: list every note, by filename
-      while IFS= read -r rel; do
+      while IFS= read -r -d '' rel; do
+        [[ $rel == *$'\t'* || $rel == *$'\n'* ]] && continue
         rows+=( "$NOTES_DIR/$rel"$'\t'"1"$'\t'"$rel" )
-      done < <(cd "$NOTES_DIR" && command rg --files -g '*.md' 2>/dev/null | sort)
+      done < <(cd "$NOTES_DIR" && command rg --files --null -g '*.md' 2>/dev/null)
     else
       # block 1: filename matches
-      while IFS= read -r rel; do
+      while IFS= read -r -d '' rel; do
+        [[ $rel == *$'\t'* || $rel == *$'\n'* ]] && continue
         [[ -n "$rel" ]] && rows+=( "$NOTES_DIR/$rel"$'\t'"1"$'\t'"$rel" )
-      done < <(cd "$NOTES_DIR" && command rg --files -g '*.md' 2>/dev/null \
-                 | command rg --fixed-strings --smart-case -- "$query" | sort)
+      done < <(cd "$NOTES_DIR" && command rg --files --null -g '*.md' 2>/dev/null \
+                 | command rg --null-data --fixed-strings --smart-case -- "$query")
       # block 2: content matches
-      while IFS= read -r rest; do
-        rel="${rest%%:*}"
-        line="${${rest#*:}%%:*}"
-        rows+=( "$NOTES_DIR/$rel"$'\t'"$line"$'\t'"$rest" )
+      while IFS= read -r -d '' rel && IFS= read -r rest; do
+        [[ $rel == *$'\t'* || $rel == *$'\n'* ]] && continue
+        line="${rest%%:*}"
+        [[ $line == <1-> ]] || continue
+        rows+=( "$NOTES_DIR/$rel"$'\t'"$line"$'\t'"$rel:$rest" )
       done < <(cd "$NOTES_DIR" && command rg --fixed-strings --smart-case \
-                 --line-number --no-heading --color=never -g '*.md' -- "$query" 2>/dev/null)
+                 --null --with-filename --line-number --no-heading --color=never -g '*.md' -- "$query" . 2>/dev/null)
     fi
 
     (( ${#rows} )) || { print -u2 "notes: no match for: ${query:-(all)}"; return 1 }
@@ -128,9 +134,9 @@ if command -v rg >/dev/null; then
     if command -v fzf >/dev/null; then
       local preview
       if command -v bat >/dev/null; then
-        preview='bat --style=numbers --color=always --highlight-line {2} {1}'
+        preview='bat --style=numbers --color=always --highlight-line {2} -- {1}'
       else
-        preview='cat {1}'
+        preview='cat -- {1}'
       fi
       local pick
       pick="$(printf '%s\n' "${rows[@]}" \
@@ -139,7 +145,8 @@ if command -v rg >/dev/null; then
       [[ -n "$pick" ]] || return
       local file="${pick%%$'\t'*}"
       line="${${pick#*$'\t'}%%$'\t'*}"
-      "${EDITOR:-vim}" "+${line}" "$file"
+      [[ $line == <1-> ]] || return 1
+      "${EDITOR:-vim}" "+${line}" -- "$file"
     else
       # no fzf: print the ranked matches (filenames first, then content)
       printf '%s\n' "${rows[@]}" | cut -f3-

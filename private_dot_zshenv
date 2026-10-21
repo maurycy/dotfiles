@@ -2,6 +2,29 @@
 # .zshrc can both use these. The helper functions below only define
 # themselves; they run nothing until called.
 
+# Check every parent without following symlinks. Root-owned sticky directories
+# permit private temporary homes under /private/tmp or /tmp on Linux.
+_is_safe_parent() {
+  emulate -L zsh
+  zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  # Keep '..' until after each component check: lexical normalization could
+  # hide a symlink before '..' even though the kernel follows that symlink.
+  local d=$1
+  [[ $d == /* ]] || d="$PWD/$d"
+  d=${d:h}
+  local -A s
+  while true; do
+    [[ -d $d && ! -L $d ]] || return 1
+    zstat -H s -- "$d" 2>/dev/null || return 1
+    (( s[uid] == EUID || s[uid] == 0 )) || return 1
+    if (( s[mode] & 18 )); then
+      (( s[uid] == 0 && (s[mode] & 512) )) || return 1
+    fi
+    [[ $d == / ]] && return 0
+    d=${d:h}
+  done
+}
+
 # _is_safe_source <file> [strict] - succeed only if <file> is a regular,
 # non-symlink file owned by the current user. default: also require no
 # group/other WRITE bit (tamper safety). `strict`: require no group/other
@@ -11,6 +34,7 @@ _is_safe_source() {
   zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
   local f=$1
   [[ -f $f && ! -L $f && -O $f ]] || return 1
+  _is_safe_parent "$f" || return 1
   local -A s
   zstat -H s -- "$f" 2>/dev/null || return 1
   # 18 = octal 022 (group/other write bits); 63 = octal 077 (all group/other
@@ -18,10 +42,17 @@ _is_safe_source() {
   # the global integer output base and break `local -i` elsewhere (e.g.
   # vcs_info's max-exports), and a bare 0NN is read as decimal, not octal.
   if [[ -n $2 ]]; then
-    (( (s[mode] & 63) == 0 ))
+    (( (s[mode] & 63) == 0 )) || return 1
   else
-    (( (s[mode] & 18) == 0 ))
+    (( (s[mode] & 18) == 0 )) || return 1
   fi
+  # source can select a newer compiled companion instead of the text file.
+  if [[ -e $f.zwc || -L $f.zwc ]]; then
+    [[ -f $f.zwc && ! -L $f.zwc && -O $f.zwc ]] || return 1
+    zstat -H s -- "$f.zwc" 2>/dev/null || return 1
+    (( (s[mode] & 63) == 0 )) || return 1
+  fi
+  return 0
 }
 
 # _is_safe_dir <path> - succeed only if <path> is a directory owned by the
@@ -35,6 +66,7 @@ _is_safe_dir() {
   zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
   local d=$1
   [[ -d $d && ! -L $d && -O $d ]] || return 1
+  _is_safe_parent "$d" || return 1
   local -A s
   zstat -H s -- "$d" 2>/dev/null || return 1
   (( (s[mode] & 18) == 0 ))
@@ -49,9 +81,16 @@ _cache_file() {
   local -a cmd=( "${@:3}" )
   if [[ ! -s "$cache" || ( -n "$trigger" && "$trigger" -nt "$cache" ) ]] \
      || ! _is_safe_source "$cache" strict; then
-    mkdir -p "${cache:h}" && chmod 700 "${cache:h}"
+    mkdir -p "${cache:h}" || return 1
+    _is_safe_dir "${cache:h}" || return 1
+    chmod 700 "${cache:h}" || return 1
     if tmp=$(mktemp "${cache}.XXXXXX"); then
       if "${cmd[@]}" > "$tmp" && [[ -s "$tmp" ]]; then
+        [[ ! -L $cache ]] || rm -f -- "$cache"
+        if [[ -e $cache && ! -f $cache ]]; then
+          rm -f -- "$tmp"
+          return 1
+        fi
         mv -f "$tmp" "$cache"
       else
         rm -f "$tmp"

@@ -286,9 +286,10 @@ else
   WORKER=$(mktemp)
   trap 'rm -f "$WORKER"' EXIT
   # Export the function body into the worker
-  cat > "$WORKER" <<WORKEREOF
+  export OUTDIR PNG DPI DUPLEX PDFA
+  cat > "$WORKER" <<'WORKEREOF'
 #!/bin/sh
-FILE="\$1"
+FILE="$1"
 OUTDIR="$OUTDIR"
 PNG="$PNG"
 DPI="$DPI"
@@ -296,79 +297,79 @@ DUPLEX="$DUPLEX"
 PDFA="$PDFA"
 
 convert_pdfa() {
-  infile="\$1"
-  tmpfile="\${infile}.pdfa.tmp"
-  gs -dPDFA -dBATCH -dNOPAUSE -dNOOUTERSAVE \\
-    -sColorConversionStrategy=UseDeviceIndependentColor \\
-    -sDEVICE=pdfwrite -dPDFACompatibilityPolicy=1 \\
-    -sOutputFile="\$tmpfile" "\$infile" >/dev/null 2>&1
-  mv "\$tmpfile" "\$infile"
+  infile="$1"
+  tmpfile="${infile}.pdfa.tmp"
+  gs -dPDFA -dBATCH -dNOPAUSE -dNOOUTERSAVE \
+    -sColorConversionStrategy=UseDeviceIndependentColor \
+    -sDEVICE=pdfwrite -dPDFACompatibilityPolicy=1 \
+    -sOutputFile="$tmpfile" "$infile" >/dev/null 2>&1
+  mv "$tmpfile" "$infile"
 }
 
-basename="\$(basename "\$FILE" .pdf)"
-filedir="\$(dirname "\$FILE")"
+basename="$(basename "$FILE" .pdf)"
+filedir="$(dirname "$FILE")"
 
-if [ -n "\$OUTDIR" ]; then
-  dir="\$OUTDIR"
+if [ -n "$OUTDIR" ]; then
+  dir="$OUTDIR"
 else
-  dir="\${filedir}/\${basename}"
+  dir="${filedir}/${basename}"
 fi
 
-if [ -d "\$dir" ]; then
-  if ls "\$dir"/page_01.* >/dev/null 2>&1 || ls "\$dir"/sheet_01.* >/dev/null 2>&1; then
-    echo "SKIP: \$FILE (already split in \$dir/)"
+if [ -d "$dir" ]; then
+  if ls "$dir"/page_01.* >/dev/null 2>&1 || ls "$dir"/sheet_01.* >/dev/null 2>&1; then
+    echo "SKIP: $FILE (already split in $dir/)"
     exit 0
   fi
 fi
 
-mkdir -p "\$dir"
+mkdir -p "$dir"
 
-if [ "\$DUPLEX" = "1" ]; then
+if [ "$DUPLEX" = "1" ]; then
   step=2
 else
   step=1
 fi
 
-if [ "\$PNG" = "1" ]; then
-  npages=\$(qpdf --show-npages "\$FILE" 2>/dev/null || echo 0)
-  echo "Splitting: \$FILE -> \${npages} pages as PNG at \${DPI} dpi"
+if [ "$PNG" = "1" ]; then
+  npages=$(qpdf --show-npages "$FILE" 2>/dev/null || echo 0)
+  echo "Splitting: $FILE -> ${npages} pages as PNG at ${DPI} dpi"
   i=1
   n=1
-  while [ "\$i" -le "\$npages" ]; do
-    last=\$((i + step - 1))
-    [ "\$last" -gt "\$npages" ] && last="\$npages"
-    if [ "\$DUPLEX" = "1" ]; then
-      outname="\$(printf 'sheet_%02d_%ddpi' "\$n" "\$DPI")"
+  while [ "$i" -le "$npages" ]; do
+    last=$((i + step - 1))
+    [ "$last" -gt "$npages" ] && last="$npages"
+    if [ "$DUPLEX" = "1" ]; then
+      outname="$(printf 'sheet_%02d_%ddpi' "$n" "$DPI")"
     else
-      outname="\$(printf 'page_%02d_%ddpi' "\$i" "\$DPI")"
+      outname="$(printf 'page_%02d_%ddpi' "$i" "$DPI")"
     fi
-    pdftoppm -png -r "\$DPI" -f "\$i" -l "\$last" -singlefile "\$FILE" "\${dir}/\${outname}"
-    i=\$((i + step))
-    n=\$((n + 1))
+    pdftoppm -png -r "$DPI" -f "$i" -l "$last" -singlefile "$FILE" "${dir}/${outname}"
+    i=$((i + step))
+    n=$((n + 1))
   done
 else
-  ext="\${FILE##*.}"
-  npages=\$(qpdf --show-npages "\$FILE" 2>/dev/null || echo 0)
-  echo "Splitting: \$FILE -> \${npages} pages as \${ext}"
+  ext="${FILE##*.}"
+  npages=$(qpdf --show-npages "$FILE" 2>/dev/null || echo 0)
+  echo "Splitting: $FILE -> ${npages} pages as ${ext}"
   i=1
   n=1
-  while [ "\$i" -le "\$npages" ]; do
-    last=\$((i + step - 1))
-    [ "\$last" -gt "\$npages" ] && last="\$npages"
-    if [ "\$DUPLEX" = "1" ]; then
-      outname="\$(printf 'sheet_%02d.%s' "\$n" "\$ext")"
+  while [ "$i" -le "$npages" ]; do
+    last=$((i + step - 1))
+    [ "$last" -gt "$npages" ] && last="$npages"
+    if [ "$DUPLEX" = "1" ]; then
+      outname="$(printf 'sheet_%02d.%s' "$n" "$ext")"
     else
-      outname="\$(printf 'page_%02d.%s' "\$i" "\$ext")"
+      outname="$(printf 'page_%02d.%s' "$i" "$ext")"
     fi
-    qpdf "\$FILE" --pages "\$FILE" "\$i"-"\$last" -- "\${dir}/\${outname}"
-    if [ "\$PDFA" = "1" ]; then
-      convert_pdfa "\${dir}/\${outname}"
+    qpdf "$FILE" --pages "$FILE" "$i"-"$last" -- "${dir}/${outname}"
+    if [ "$PDFA" = "1" ]; then
+      convert_pdfa "${dir}/${outname}"
     fi
-    i=\$((i + step))
-    n=\$((n + 1))
+    i=$((i + step))
+    n=$((n + 1))
   done
 fi
-echo "DONE: \$FILE (\${npages} pages)"
+echo "DONE: $FILE (${npages} pages)"
 WORKEREOF
   chmod +x "$WORKER"
   echo "$FILE_LIST" | xargs -P "$PARALLEL" -I {} "$WORKER" {}

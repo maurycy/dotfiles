@@ -20,7 +20,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Install chezmoi
-        run: sh -c "$(curl -fsLS get.chezmoi.io)"
+        run: |
+          curl --proto '=https' --proto-redir '=https' -fsSL https://get.chezmoi.io -o "$RUNNER_TEMP/install-chezmoi.sh"
+          sh "$RUNNER_TEMP/install-chezmoi.sh"
       - name: Render templates
         run: |
           for f in *.tmpl .chezmoiignore; do
