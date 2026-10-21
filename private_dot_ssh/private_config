@@ -8,7 +8,5 @@ Host *
     HashKnownHosts yes
     ServerAliveInterval 30
     ServerAliveCountMax 3
-    # Enable connection sharing only in explicit host blocks in config.d.
-    # ControlPath none also prevents reuse of an existing master.
     ControlMaster no
     ControlPath none
