@@ -92,7 +92,13 @@ _history_sync() {
     local updated="$next $info[device] $info[inode] $info[size] $info[mtime]"
     [[ $saved == $updated ]] || print -r -- "$updated" > "$state"
     _history_pending_time=0
-    [[ $1 == init ]] || fc -RI "$HISTFILE"
+    if [[ $1 != init ]]; then
+      fc -RI "$HISTFILE"
+      # zsh 5.9 can leave the current history event misnumbered when -RI
+      # skips duplicates in precmd, breaking Up/Ctrl-P. Pushing and popping
+      # an empty context relinks that event without changing the history.
+      fc -p && fc -P
+    fi
   } always {
     [[ -z $new ]] || _history_remove "$new"
     [[ -z $old ]] || _history_remove "$old"
