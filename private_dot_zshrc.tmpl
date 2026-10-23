@@ -38,8 +38,16 @@ alias bp='./configure --enable-optimizations --with-lto && make -j$(getconf _NPR
 alias bpj='./configure --enable-experimental-jit && make -j$(getconf _NPROCESSORS_ONLN)'
 alias bpjo='./configure --enable-experimental-jit --enable-optimizations --with-lto && make -j$(getconf _NPROCESSORS_ONLN)'
 {{- if eq .chezmoi.os "darwin" }}
-alias code="'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'"
-alias code2="'/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code'"
+if [[ -x "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" ]]; then
+  alias code='"$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"'
+elif [[ -x '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' ]]; then
+  alias code="'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'"
+fi
+if [[ -x "$HOME/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code" ]]; then
+  alias code2='"$HOME/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"'
+elif [[ -x '/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code' ]]; then
+  alias code2="'/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code'"
+fi
 alias e='code'
 alias less='less -RX'
 {{- end }}
