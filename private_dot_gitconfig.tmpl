@@ -52,8 +52,14 @@
 	autoSetupRemote = true
 	followTags = true
 
+[transfer]
+	# reject malformed or tampered objects on clone, fetch and push
+	fsckObjects = true
 [fetch]
 	prune = true
+	fsckObjects = true
+[receive]
+	fsckObjects = true
 
 [pull]
 	rebase = true
