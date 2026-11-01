@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadType</key><string>Configuration</string>
+  <key>PayloadVersion</key><integer>1</integer>
+  <key>PayloadIdentifier</key><string>com.maurycy.chrome.policies</string>
+  <key>PayloadUUID</key><string>82435CD8-CD7E-4CBD-9C06-012FDF6BCB55</string>
+  <key>PayloadDisplayName</key><string>Chrome policies</string>
+  <key>PayloadDescription</key><string>Mandatory Chrome Enterprise policies for this Mac. Source: dotfiles, private_dot_config/chrome/policies.mobileconfig.</string>
+  <key>PayloadOrganization</key><string>maurycy</string>
+  <key>PayloadScope</key><string>User</string>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadType</key><string>com.google.Chrome</string>
+      <key>PayloadVersion</key><integer>1</integer>
+      <key>PayloadIdentifier</key><string>com.maurycy.chrome.policies.chrome</string>
+      <key>PayloadUUID</key><string>70E880FC-E883-4131-BAC9-E49B433467D0</string>
+      <key>PayloadDisplayName</key><string>Google Chrome</string>
+      <key>PayloadEnabled</key><true/>
+
+      <!-- Only these extensions may be installed; Chrome's component
+           extensions (Google Wallet and friends) are exempt by design. -->
+      <key>ExtensionInstallBlocklist</key>
+      <array><string>*</string></array>
+      <key>ExtensionInstallAllowlist</key>
+      <array><string>fcoeoabgfenejglbffodgkkbkcdhcgfn</string></array>
+
+      <!-- No V8 JIT: most Chrome 0-days are V8 bugs. Add slow sites here. -->
+      <key>DefaultJavaScriptJitSetting</key><integer>2</integer>
+      <key>JavaScriptJitAllowedForSites</key>
+      <array></array>
+
+      <key>HttpsOnlyMode</key><string>force_enabled</string>
+      <key>BlockThirdPartyCookies</key><true/>
+      <key>SafeBrowsingProtectionLevel</key><integer>1</integer>
+
+      <!-- Web pages get no access to USB, serial, Bluetooth or HID devices. -->
+      <key>DefaultWebUsbGuardSetting</key><integer>2</integer>
+      <key>DefaultSerialGuardSetting</key><integer>2</integer>
+      <key>DefaultWebBluetoothGuardSetting</key><integer>2</integer>
+      <key>DefaultWebHidGuardSetting</key><integer>2</integer>
+
+      <!-- Passwords and cards live in the password manager, not in Chrome. -->
+      <key>PasswordManagerEnabled</key><false/>
+      <key>AutofillCreditCardEnabled</key><false/>
+
+      <key>RemoteAccessHostAllowRemoteAccessConnections</key><false/>
+    </dict>
+  </array>
+</dict>
+</plist>
