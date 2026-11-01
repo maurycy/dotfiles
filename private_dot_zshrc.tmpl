@@ -147,15 +147,11 @@ mupdate() {
     command -v brew >/dev/null && brew list "$1" &>/dev/null
   }
 
+  # gh repo sync defaults to the fork's parent, so one list call and one
+  # sync per fork, eight forks at a time, instead of two serial calls each.
   command -v gh >/dev/null && gh auth status &>/dev/null && {
-    gh repo list --fork --json nameWithOwner --jq '.[].nameWithOwner' | while read -r repo; do
-      local parent
-      parent=$(gh api "repos/${repo}" --jq '.parent.full_name' 2>/dev/null)
-      if [[ -n "$parent" && "$parent" != "null" ]]; then
-        echo "Syncing ${repo} <- ${parent}"
-        gh repo sync "$repo" --source "$parent" || true
-      fi
-    done
+    gh repo list --fork --json nameWithOwner --jq '.[].nameWithOwner' |
+      xargs -P 8 -I{} sh -c 'gh repo sync "$1" >/dev/null 2>&1 && echo "synced $1" || echo "sync failed $1"' _ {}
   }
 
   command -v fastfetch >/dev/null && fastfetch
