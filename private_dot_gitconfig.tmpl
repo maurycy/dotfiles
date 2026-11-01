@@ -3,7 +3,15 @@
 [user]
 	name = maurycy
 	email = 5383+maurycy@users.noreply.github.com
+{{- if eq .chezmoi.hostname "gimel" }}
+	signingkey = ~/.ssh/id_ecdsa_sk_rk_ssh-gimel.pub
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	allowedSignersFile = ~/.ssh/allowed_signers
+{{- else }}
 	signingkey = 2896D6FE5AB97B6214676444DAA4A263A5B8A924
+{{- end }}
 
 [core]
 	editor = vim
