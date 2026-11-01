@@ -1,0 +1,21 @@
+{{- if eq .chezmoi.os "darwin" -}}
+#!/bin/sh
+# policies.mobileconfig hash: {{ include "private_dot_config/chrome/policies.mobileconfig" | sha256sum }}
+#
+# Chrome policies written with `defaults write` only reach the Recommended
+# level, which the user (or an extension) can change and which some
+# policies, the extension blocklist and the JIT switch among them, ignore.
+# Mandatory needs managed preferences, and without MDM that means a
+# configuration profile the user installs by hand. This script only opens
+# the profile when it is not installed yet; macOS asks for the admin
+# password in System Settings > Privacy & Security > Profiles.
+set -eu
+
+P="$HOME/.config/chrome/policies.mobileconfig"
+if profiles list 2>/dev/null | grep -q 'com.maurycy.chrome.policies'; then
+  echo "Chrome policies profile already installed. After editing the profile: remove it in System Settings > Privacy & Security > Profiles, then run chezmoi apply again."
+  exit 0
+fi
+open "$P"
+echo "Chrome policies profile opened. Finish in System Settings > Privacy & Security > Profiles, then restart Chrome and check chrome://policy (Level: Mandatory)."
+{{- end }}
