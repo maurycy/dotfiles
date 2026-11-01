@@ -18,6 +18,10 @@ export GPG_TTY=$TTY
 # Apple's library instead of looking for a USB FIDO key. YubiKey operations
 # opt out with -w internal / -S internal.
 export SSH_SK_PROVIDER=/usr/lib/ssh-keychain.dylib
+# gcloud runs on Homebrew's python@3.14 instead of its own bundled Python
+# plus a venv under ~/.config/gcloud. Pinned to 3.14, the version gcloud
+# itself recommends; the unversioned python3 symlink moves with brew.
+export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.14
 {{- end }}
 
 {{- if eq .chezmoi.os "darwin" }}
