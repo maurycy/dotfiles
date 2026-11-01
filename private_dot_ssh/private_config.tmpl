@@ -5,8 +5,9 @@ Host *
 {{- if eq .chezmoi.hostname "gimel" }}
     IdentityFile ~/.ssh/id_ecdsa_sk_rk_ssh-gimel
     SecurityKeyProvider /usr/lib/ssh-keychain.dylib
-{{- end }}
+{{- else }}
     IdentityFile ~/.ssh/id_ed25519
+{{- end }}
     AddKeysToAgent 1h
     ForwardAgent no
     HashKnownHosts yes
