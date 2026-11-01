@@ -1,0 +1,3 @@
+# only http and https, and redirects may only go to https
+proto = "=https,http"
+proto-redir = "=https"
