@@ -2,6 +2,10 @@ Include config.d/*
 
 Host *
     IdentitiesOnly yes
+{{- if eq .chezmoi.hostname "gimel" }}
+    IdentityFile ~/.ssh/id_ecdsa_sk_rk_ssh-gimel
+    SecurityKeyProvider /usr/lib/ssh-keychain.dylib
+{{- end }}
     IdentityFile ~/.ssh/id_ed25519
     AddKeysToAgent 1h
     ForwardAgent no
