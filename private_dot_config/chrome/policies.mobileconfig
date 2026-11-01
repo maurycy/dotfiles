@@ -27,9 +27,11 @@
       <key>ExtensionInstallAllowlist</key>
       <array><string>fcoeoabgfenejglbffodgkkbkcdhcgfn</string></array>
 
-      <!-- No V8 JIT: most Chrome 0-days are V8 bugs. Add slow sites here. -->
-      <key>DefaultJavaScriptJitSetting</key><integer>2</integer>
-      <key>JavaScriptJitAllowedForSites</key>
+      <!-- No V8 optimizing compilers (Maglev, TurboFan), where most V8
+           0-days live. The baseline compiler and WebAssembly stay, so
+           pages do not crawl. Add sites that need full speed here. -->
+      <key>DefaultJavaScriptOptimizerSetting</key><integer>2</integer>
+      <key>JavaScriptOptimizerAllowedForSites</key>
       <array></array>
 
       <key>HttpsOnlyMode</key><string>force_enabled</string>
