@@ -12,6 +12,7 @@ TODO.md
 
 # Linux-only ignores (macOS files to skip on Linux)
 {{ if eq .chezmoi.os "linux" }}
+darwin-chrome-policies.sh
 {{ end }}
 
 # Kyber-encrypted secrets: skip them where gpg predates PQC (2.5)
