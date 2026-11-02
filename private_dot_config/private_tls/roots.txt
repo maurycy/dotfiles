@@ -21,3 +21,5 @@ C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., CN=Go Daddy Root Certificat
 # chain to SSL.com; needed for curl --doh-url. Own Cloudflare-fronted domains
 # still chain to GTS, so this is the only SSL.com root measured in use.
 C=US, ST=Texas, L=Houston, O=SSL Corporation, CN=SSL.com Root Certification Authority ECC
+# 2026-11-02: nbp.pl and api.nbp.pl chain to Certum (OV TLS G2 R39 CA).
+C=PL, O=Asseco Data Systems S.A., OU=Certum Certification Authority, CN=Certum Trusted Root CA
