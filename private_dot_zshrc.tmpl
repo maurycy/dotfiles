@@ -11,6 +11,11 @@ typeset -U path fpath
 # env
 export EDITOR=vim
 export DISABLE_SPRING=1
+# npm never runs package install scripts (the main npm supply-chain vector).
+# npm run/start/test still run their own script, only pre/post hooks and
+# install-time scripts are skipped; allow a package case by case with
+# --allow-scripts=<pkg>. Node and pnpm now come from mise per project.
+export NPM_CONFIG_IGNORE_SCRIPTS=true
 {{- if eq .chezmoi.os "darwin" }}
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 export GPG_TTY=$TTY
