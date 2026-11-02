@@ -23,3 +23,6 @@ C=US, ST=Arizona, L=Scottsdale, O=GoDaddy.com, Inc., CN=Go Daddy Root Certificat
 C=US, ST=Texas, L=Houston, O=SSL Corporation, CN=SSL.com Root Certification Authority ECC
 # 2026-11-02: nbp.pl and api.nbp.pl chain to Certum (OV TLS G2 R39 CA).
 C=PL, O=Asseco Data Systems S.A., OU=Certum Certification Authority, CN=Certum Trusted Root CA
+# 2026-11-02: api.osv.dev chains to GTS Root R1 (other Google hosts in use
+# chain to roots already listed).
+C=US, O=Google Trust Services LLC, CN=GTS Root R1
