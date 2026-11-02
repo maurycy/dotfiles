@@ -35,6 +35,14 @@
       <array></array>
 
       <key>HttpsOnlyMode</key><string>force_enabled</string>
+
+      <!-- Any machine-level policy makes Chrome on macOS turn secure DNS off
+           and grey out its setting (ShouldDisableDohForManaged), so set it
+           here. Secure without fallback: needed for Encrypted Client Hello.
+           Cost: tailnet names (*.ts.net) do not resolve in Chrome; the
+           exclusion policy exists only on ChromeOS. -->
+      <key>DnsOverHttpsMode</key><string>secure</string>
+      <key>DnsOverHttpsTemplates</key><string>https://chrome.cloudflare-dns.com/dns-query</string>
       <key>BlockThirdPartyCookies</key><true/>
       <key>SafeBrowsingProtectionLevel</key><integer>1</integer>
 
