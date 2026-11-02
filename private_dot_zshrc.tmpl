@@ -195,6 +195,13 @@ mupdate() {
   command -v cargo-install-update >/dev/null && {
     cargo install-update -a --locked --cooldown "${cooldown_days}d" || return
   }
+  # node itself: newest release of the same major, globals carried over
+  command -v nvm >/dev/null && command -v node >/dev/null && {
+    local node_cur
+    node_cur=$(node --version) || return
+    nvm install "${${node_cur#v}%%.*}" --reinstall-packages-from="$node_cur" --default || return
+    [[ $(node --version) != "$node_cur" ]] && { nvm uninstall "$node_cur" || true; }
+  }
   command -v npm >/dev/null && {
     zmodload zsh/datetime
     local before
