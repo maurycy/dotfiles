@@ -161,7 +161,7 @@ if [[ -n $_tls_ca_bundle ]]; then
   # Replace inherited extra CAs too, so they cannot restore old roots.
   export NODE_EXTRA_CA_CERTS="$_tls_ca_bundle"
   # Temporary until node ships the distrust. SSL_CERT_FILE selects the
-  # OpenSSL store explicitly, rather than assuming the nvm default is empty.
+  # OpenSSL store explicitly. Node still ships inside Codex and Playwright.
   if [[ " ${NODE_OPTIONS-} " != *" --use-openssl-ca "* ]]; then
     export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-openssl-ca"
   fi
