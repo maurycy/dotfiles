@@ -41,5 +41,12 @@ jobs:
             ./bin/chezmoi execute-template --source . < "$f" > "$tmpdir/${f%.tmpl}"
             zsh -n "$tmpdir/${f%.tmpl}"
           done
+      - name: Test Codex purge over a Unix WebSocket
+        run: |
+          python3 -m venv "$RUNNER_TEMP/codex-purge-venv"
+          "$RUNNER_TEMP/codex-purge-venv/bin/python" -m pip install websockets==17.3 ruff==0.16.2
+          "$RUNNER_TEMP/codex-purge-venv/bin/ruff" check private_dot_local/private_bin/executable_codex-purge .github/tests/test_codex_purge.py
+          "$RUNNER_TEMP/codex-purge-venv/bin/ruff" format --check private_dot_local/private_bin/executable_codex-purge .github/tests/test_codex_purge.py
+          "$RUNNER_TEMP/codex-purge-venv/bin/python" -m unittest discover -s .github/tests -v
       - name: Dry-run apply
         run: ./bin/chezmoi apply --source . --destination "$(mktemp -d)" --dry-run --exclude=encrypted
