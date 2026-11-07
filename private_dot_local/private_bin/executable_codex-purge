@@ -1,8 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["websockets==17.3"]
+# ///
 """Purge Codex sessions inactive for one calendar month through its local API.
 
-The cutoff uses UTC. Requires a running local Codex app-server.
-Preview by default; --apply deletes.
+The cutoff uses UTC. Requires uv and a running local Codex app-server.
+Preview by default; --apply deletes state-indexed sessions.
 Do not resume old sessions during cleanup: checking and deleting are separate
 API requests. Sessions open in independent app-server processes are not visible.
 """
@@ -11,10 +15,13 @@ import argparse
 import calendar
 import itertools
 import json
-import signal
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
+
+from websockets.exceptions import WebSocketException
+from websockets.sync.client import unix_connect
 
 
 def month_ago(now):
@@ -24,44 +31,53 @@ def month_ago(now):
     return now.replace(year=year, month=month, day=day).timestamp()
 
 
-def timeout(signum, frame):
-    raise TimeoutError("Codex API did not respond within 30 seconds")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="delete expired sessions")
     args = parser.parse_args()
     cutoff = month_ago(datetime.now(timezone.utc))
-    signal.signal(signal.SIGALRM, timeout)
-    process = subprocess.Popen(
-        ["codex", "app-server", "proxy"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        text=True,
+    info = json.loads(
+        subprocess.check_output(
+            ["codex", "app-server", "daemon", "version"],
+            text=True,
+            timeout=30,
+        )
     )
+    if info["status"] != "running":
+        raise RuntimeError("the local Codex server is not running")
+    with unix_connect(
+        info["socketPath"],
+        open_timeout=10,
+        close_timeout=5,
+        max_size=8 * 1024 * 1024,
+        legacy=True,
+    ) as connection:
+        purge(connection, cutoff, args.apply)
+
+
+def purge(connection, cutoff, apply):
     ids = itertools.count()
 
     def send(message):
-        process.stdin.write(json.dumps(message) + "\n")
-        process.stdin.flush()
+        connection.send(json.dumps(message))
 
     def rpc(method, **params):
         request_id = next(ids)
-        signal.alarm(30)
-        try:
-            send({"id": request_id, "method": method, "params": params})
-            for line in process.stdout:
-                reply = json.loads(line)
-                if reply.get("id") == request_id:
-                    if "error" in reply:
-                        raise RuntimeError(f"{method}: {reply['error']}")
-                    return reply["result"]
-            raise RuntimeError(
-                "Codex closed the connection; is the local server running?"
-            )
-        finally:
-            signal.alarm(0)
+        deadline = time.monotonic() + 30
+        send({"id": request_id, "method": method, "params": params})
+        while True:
+            try:
+                reply = json.loads(
+                    connection.recv(timeout=max(0, deadline - time.monotonic()))
+                )
+            except TimeoutError as error:
+                raise TimeoutError(
+                    f"{method}: Codex API did not respond within 30 seconds"
+                ) from error
+            if reply.get("id") == request_id:
+                if "error" in reply:
+                    raise RuntimeError(f"{method}: {reply['error']}")
+                return reply["result"]
 
     def threads(**filters):
         result = []
@@ -85,6 +101,7 @@ def main():
                     archived=archived,
                     cursor=cursor,
                     limit=100,
+                    useStateDbOnly=True,
                     modelProviders=[],
                     sourceKinds=sources,
                     **filters,
@@ -102,49 +119,46 @@ def main():
             and not thread["ephemeral"]
         )
 
-    try:
-        rpc(
-            "initialize",
-            clientInfo={"name": "codex_purge", "version": "1"},
-            capabilities={"experimentalApi": True},
-        )
-        send({"method": "initialized"})
-        handled = set()
-        count = 0
-        for thread in threads():
-            tid = thread["id"]
-            if tid in handled or not expired(thread):
-                continue
-            current = rpc("thread/read", threadId=tid)["thread"]
-            family = [current, *threads(ancestorThreadId=tid)]
-            if not all(expired(t) for t in family):
-                continue
-            if args.apply:
-                rpc("thread/delete", threadId=tid)
-            print(
-                "deleted" if args.apply else "would delete",
-                tid,
-                f"({len(family)} sessions)",
-                flush=True,
-            )
-            count += len(family)
-            handled.update(t["id"] for t in family)
+    rpc(
+        "initialize",
+        clientInfo={"name": "codex_purge", "version": "1"},
+        capabilities={"experimentalApi": True},
+    )
+    send({"method": "initialized"})
+    handled = set()
+    count = 0
+    for thread in threads():
+        tid = thread["id"]
+        if tid in handled or not expired(thread):
+            continue
+        current = rpc("thread/read", threadId=tid)["thread"]
+        family = [current, *threads(ancestorThreadId=tid)]
+        if not all(expired(t) for t in family):
+            continue
+        if apply:
+            rpc("thread/delete", threadId=tid)
+        selected = {t["id"] for t in family} - handled
         print(
-            f"codex-purge: {count} sessions {'deleted' if args.apply else 'eligible'}"
+            "deleted" if apply else "would delete",
+            tid,
+            f"({len(selected)} sessions)",
+            flush=True,
         )
-    finally:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        process.stdin.close()
-        process.stdout.close()
+        count += len(selected)
+        handled.update(selected)
+    print(f"codex-purge: {count} sessions {'deleted' if apply else 'eligible'}")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.SubprocessError,
+        WebSocketException,
+    ) as error:
         sys.exit(f"codex-purge: {error}")
