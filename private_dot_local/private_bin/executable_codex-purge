@@ -6,7 +6,8 @@
 """Purge Codex sessions inactive for one calendar month through its local API.
 
 The cutoff uses UTC. Requires uv and a running local Codex app-server.
-Preview by default; --apply deletes state-indexed sessions.
+Preview by default; --apply deletes expired persistent sessions.
+Discovers sessions through the API and local rollout filenames.
 Do not resume old sessions during cleanup: checking and deleting are separate
 API requests. Sessions open in independent app-server processes are not visible.
 """
@@ -15,10 +16,13 @@ import argparse
 import calendar
 import itertools
 import json
+import os
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
+from uuid import UUID
 
 from websockets.exceptions import WebSocketException
 from websockets.sync.client import unix_connect
@@ -29,6 +33,13 @@ def month_ago(now):
     month += 1
     day = min(now.day, calendar.monthrange(year, month)[1])
     return now.replace(year=year, month=month, day=day).timestamp()
+
+
+def rollout_ids():
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+    for directory in ("sessions", "archived_sessions"):
+        for path in (home / directory).rglob("rollout-*.jsonl"):
+            yield str(UUID(path.stem[-36:]))
 
 
 def main():
@@ -125,9 +136,14 @@ def purge(connection, cutoff, apply):
         capabilities={"experimentalApi": True},
     )
     send({"method": "initialized"})
+    candidates = {t["id"]: t for t in threads()}
+    # Ordinary API listings hide threads with empty previews and attached threads.
+    # Read every additional rollout before deleting anything; an error aborts cleanup.
+    for tid in sorted(set(rollout_ids()) - candidates.keys()):
+        candidates[tid] = rpc("thread/read", threadId=tid)["thread"]
     handled = set()
     count = 0
-    for thread in threads():
+    for thread in candidates.values():
         tid = thread["id"]
         if tid in handled or not expired(thread):
             continue
