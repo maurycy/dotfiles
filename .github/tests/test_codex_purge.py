@@ -33,8 +33,17 @@ def thread(tid, **fields):
 
 
 class PurgeTests(unittest.TestCase):
-    def run_purge(self, threads, *, apply=False, error=None, changes=None):
-        requests, deleted = [], set()
+    def run_purge(
+        self,
+        threads,
+        *,
+        apply=False,
+        error=None,
+        changes=None,
+        rollouts=(),
+        default_home=False,
+    ):
+        requests, deleted, api_errors = [], set(), []
 
         def respond(connection):
             initialized = False
@@ -65,6 +74,13 @@ class PurgeTests(unittest.TestCase):
                             for t in selected
                             if params["ancestorThreadId"] in t.get("ancestors", [])
                         ]
+                    else:
+                        selected = [
+                            t
+                            for t in selected
+                            if (params["archived"] or t.get("preview", "message"))
+                            and t.get("source", "cli") in params["sourceKinds"]
+                        ]
                     offset = int(params["cursor"] or 0)
                     response["result"] = {
                         "data": selected[offset : offset + 1],
@@ -73,10 +89,18 @@ class PurgeTests(unittest.TestCase):
                         else None,
                     }
                 elif method == "thread/read":
-                    current = next(t for t in threads if t["id"] == params["threadId"])
-                    response["result"] = {
-                        "thread": {**current, **(changes or {}).get(current["id"], {})}
-                    }
+                    current = next(
+                        (t for t in threads if t["id"] == params["threadId"]), None
+                    )
+                    if current is None:
+                        response["error"] = {"message": "thread not found"}
+                    else:
+                        response["result"] = {
+                            "thread": {
+                                **current,
+                                **(changes or {}).get(current["id"], {}),
+                            }
+                        }
                 elif method == "thread/delete":
                     tid = params["threadId"]
                     if tid in deleted:
@@ -90,6 +114,8 @@ class PurgeTests(unittest.TestCase):
                         response["result"] = {}
                 else:
                     response["error"] = {"message": "unexpected method"}
+                if "error" in response:
+                    api_errors.append(response["error"])
                 connection.send(json.dumps({"method": "test/notification"}))
                 connection.send(json.dumps(response))
 
@@ -97,7 +123,7 @@ class PurgeTests(unittest.TestCase):
             try:
                 respond(connection)
             except ConnectionClosedError:
-                if error is None:
+                if not api_errors:
                     raise
 
         with tempfile.TemporaryDirectory(dir="/tmp", prefix="purge-test-") as tmp:
@@ -110,7 +136,25 @@ class PurgeTests(unittest.TestCase):
                 f"print({info!r})\n"
             )
             cli.chmod(0o700)
-            env = dict(os.environ, PATH=tmp + os.pathsep + os.environ["PATH"])
+            home = Path(tmp, "home")
+            codex_home = home / ".codex" if default_home else Path(tmp, "custom-codex")
+            for tid, archived in rollouts:
+                directory = (
+                    codex_home / "archived_sessions"
+                    if archived
+                    else codex_home / "sessions/2000/01/01"
+                )
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / f"rollout-2000-01-01T00-00-00-{tid}.jsonl").write_text(
+                    "{}\n"
+                )
+            env = dict(
+                os.environ, HOME=str(home), PATH=tmp + os.pathsep + os.environ["PATH"]
+            )
+            if default_home:
+                env.pop("CODEX_HOME", None)
+            else:
+                env["CODEX_HOME"] = str(codex_home)
             with unix_serve(handle, sock) as server:
                 worker = threading.Thread(target=server.serve_forever)
                 worker.start()
@@ -153,6 +197,101 @@ class PurgeTests(unittest.TestCase):
         result, _, deleted = self.run_purge(entries, apply=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(deleted, {"old"})
+
+    def test_empty_preview_rollout_is_discovered(self):
+        tid = "00000000-0000-0000-0000-000000000001"
+        for apply in (False, True):
+            with self.subTest(apply=apply):
+                result, _, deleted = self.run_purge(
+                    [thread(tid, preview="")],
+                    apply=apply,
+                    rollouts=[(tid, False)],
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("codex-purge: 1 sessions", result.stdout)
+                self.assertEqual(deleted, {tid} if apply else set())
+
+    def test_hidden_archived_rollout_is_discovered(self):
+        tid = "00000000-0000-0000-0000-000000000001"
+        result, _, deleted = self.run_purge(
+            [thread(tid, archived=True, source="futureSource")],
+            apply=True,
+            rollouts=[(tid, True)],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(deleted, {tid})
+
+    def test_default_codex_home_is_scanned(self):
+        tid = "00000000-0000-0000-0000-000000000001"
+        result, _, deleted = self.run_purge(
+            [thread(tid, preview="")],
+            apply=True,
+            rollouts=[(tid, False)],
+            default_home=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(deleted, {tid})
+
+    def test_duplicate_rollouts_are_counted_once(self):
+        tid = "00000000-0000-0000-0000-000000000001"
+        result, requests, deleted = self.run_purge(
+            [thread(tid, preview="")],
+            apply=True,
+            rollouts=[(tid, False), (tid, True)],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(deleted, {tid})
+        self.assertIn("codex-purge: 1 sessions deleted", result.stdout)
+        self.assertEqual(sum(r["method"] == "thread/delete" for r in requests), 1)
+
+    def test_hidden_rollouts_still_protect_recent_open_and_ephemeral(self):
+        fields = [
+            {"updatedAt": datetime.now(timezone.utc).timestamp()},
+            {"status": {"type": "active"}},
+            {"status": {"type": "idle"}},
+            {"ephemeral": True},
+        ]
+        entries = [
+            thread(f"00000000-0000-0000-0000-{i:012d}", preview="", **extra)
+            for i, extra in enumerate(fields)
+        ]
+        result, requests, deleted = self.run_purge(
+            entries, apply=True, rollouts=[(t["id"], False) for t in entries]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(deleted)
+        self.assertEqual(
+            sum(r["method"] == "thread/read" for r in requests), len(entries)
+        )
+
+    def test_hidden_recent_child_protects_parent(self):
+        parent = "00000000-0000-0000-0000-000000000001"
+        child = "00000000-0000-0000-0000-000000000002"
+        result, _, deleted = self.run_purge(
+            [
+                thread(parent, preview=""),
+                thread(
+                    child,
+                    preview="",
+                    ancestors=[parent],
+                    updatedAt=datetime.now(timezone.utc).timestamp(),
+                ),
+            ],
+            apply=True,
+            rollouts=[(parent, False), (child, False)],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(deleted)
+
+    def test_unreadable_rollout_stops_before_any_deletion(self):
+        result, _, deleted = self.run_purge(
+            [thread("visible")],
+            apply=True,
+            rollouts=[("00000000-0000-0000-0000-000000000001", False)],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("thread/read", result.stderr)
+        self.assertFalse(deleted)
 
     def test_recent_archived_grandchild_protects_ancestors(self):
         entries = [
