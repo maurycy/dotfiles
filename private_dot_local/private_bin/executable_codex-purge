@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Purge Codex sessions inactive for one calendar month through its local API.
+
+The cutoff uses UTC. Requires a running local Codex app-server.
+Preview by default; --apply deletes.
+Do not resume old sessions during cleanup: checking and deleting are separate
+API requests. Sessions open in independent app-server processes are not visible.
+"""
+
+import argparse
+import calendar
+import itertools
+import json
+import signal
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+
+def month_ago(now):
+    year, month = divmod(now.year * 12 + now.month - 2, 12)
+    month += 1
+    day = min(now.day, calendar.monthrange(year, month)[1])
+    return now.replace(year=year, month=month, day=day).timestamp()
+
+
+def timeout(signum, frame):
+    raise TimeoutError("Codex API did not respond within 30 seconds")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apply", action="store_true", help="delete expired sessions")
+    args = parser.parse_args()
+    cutoff = month_ago(datetime.now(timezone.utc))
+    signal.signal(signal.SIGALRM, timeout)
+    process = subprocess.Popen(
+        ["codex", "app-server", "proxy"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    ids = itertools.count()
+
+    def send(message):
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    def rpc(method, **params):
+        request_id = next(ids)
+        signal.alarm(30)
+        try:
+            send({"id": request_id, "method": method, "params": params})
+            for line in process.stdout:
+                reply = json.loads(line)
+                if reply.get("id") == request_id:
+                    if "error" in reply:
+                        raise RuntimeError(f"{method}: {reply['error']}")
+                    return reply["result"]
+            raise RuntimeError(
+                "Codex closed the connection; is the local server running?"
+            )
+        finally:
+            signal.alarm(0)
+
+    def threads(**filters):
+        result = []
+        sources = [
+            "cli",
+            "vscode",
+            "exec",
+            "appServer",
+            "subAgent",
+            "subAgentReview",
+            "subAgentCompact",
+            "subAgentThreadSpawn",
+            "subAgentOther",
+            "unknown",
+        ]
+        for archived in (False, True):
+            cursor = None
+            while True:
+                page = rpc(
+                    "thread/list",
+                    archived=archived,
+                    cursor=cursor,
+                    limit=100,
+                    modelProviders=[],
+                    sourceKinds=sources,
+                    **filters,
+                )
+                result.extend(page["data"])
+                cursor = page["nextCursor"]
+                if cursor is None:
+                    break
+        return result
+
+    def expired(thread):
+        return (
+            thread["updatedAt"] < cutoff
+            and thread["status"]["type"] == "notLoaded"
+            and not thread["ephemeral"]
+        )
+
+    try:
+        rpc(
+            "initialize",
+            clientInfo={"name": "codex_purge", "version": "1"},
+            capabilities={"experimentalApi": True},
+        )
+        send({"method": "initialized"})
+        handled = set()
+        count = 0
+        for thread in threads():
+            tid = thread["id"]
+            if tid in handled or not expired(thread):
+                continue
+            current = rpc("thread/read", threadId=tid)["thread"]
+            family = [current, *threads(ancestorThreadId=tid)]
+            if not all(expired(t) for t in family):
+                continue
+            if args.apply:
+                rpc("thread/delete", threadId=tid)
+            print(
+                "deleted" if args.apply else "would delete",
+                tid,
+                f"({len(family)} sessions)",
+                flush=True,
+            )
+            count += len(family)
+            handled.update(t["id"] for t in family)
+        print(
+            f"codex-purge: {count} sessions {'deleted' if args.apply else 'eligible'}"
+        )
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stdin.close()
+        process.stdout.close()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as error:
+        sys.exit(f"codex-purge: {error}")
