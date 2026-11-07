@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Purge Codex sessions inactive for three calendar months through its local API.
+"""Purge Codex sessions inactive for one calendar month through its local API.
 
 Requires a running local Codex app-server. Preview by default; --apply deletes.
 Do not resume old sessions during cleanup: checking and deleting are separate
@@ -16,8 +16,8 @@ import subprocess
 import sys
 
 
-def three_months_ago(now):
-    year, month = divmod(now.year * 12 + now.month - 4, 12)
+def month_ago(now):
+    year, month = divmod(now.year * 12 + now.month - 2, 12)
     month += 1
     day = min(now.day, calendar.monthrange(year, month)[1])
     return now.replace(year=year, month=month, day=day).timestamp()
@@ -31,7 +31,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="delete expired sessions")
     args = parser.parse_args()
-    cutoff = three_months_ago(datetime.now())
+    cutoff = month_ago(datetime.now())
     signal.signal(signal.SIGALRM, timeout)
     process = subprocess.Popen(
         ["codex", "app-server", "proxy"],
