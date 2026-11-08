@@ -3,8 +3,8 @@
 [user]
 	name = maurycy
 	email = 5383+maurycy@users.noreply.github.com
-{{- if eq .chezmoi.hostname "gimel" }}
-	signingkey = ~/.ssh/id_ecdsa_sk_rk_ssh-gimel.pub
+{{- if has .chezmoi.hostname (list "gimel" "bet") }}
+	signingkey = ~/.ssh/id_ecdsa_sk_rk_ssh-{{ .chezmoi.hostname }}.pub
 [gpg]
 	format = ssh
 [gpg "ssh"]

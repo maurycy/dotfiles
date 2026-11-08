@@ -2,8 +2,8 @@ Include config.d/*
 
 Host *
     IdentitiesOnly yes
-{{- if eq .chezmoi.hostname "gimel" }}
-    IdentityFile ~/.ssh/id_ecdsa_sk_rk_ssh-gimel
+{{- if has .chezmoi.hostname (list "gimel" "bet") }}
+    IdentityFile ~/.ssh/id_ecdsa_sk_rk_ssh-{{ .chezmoi.hostname }}
     SecurityKeyProvider /usr/lib/ssh-keychain.dylib
 {{- else }}
     IdentityFile ~/.ssh/id_ed25519
