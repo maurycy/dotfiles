@@ -1,0 +1,7 @@
+{
+  "cleanupPeriodDays": 7,
+  "model": "opus",
+  "disableRemoteControl": true,
+  "theme": "dark",
+  "remoteControlAtStartup": false
+}
