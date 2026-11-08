@@ -170,3 +170,8 @@ unset _tls_ca_bundle
 [[ -x /opt/homebrew/opt/curl/bin/curl ]] && export HOMEBREW_FORCE_BREWED_CURL=1
 export REDISCLI_HISTFILE=/dev/null
 export PYTHON_HISTORY=/dev/null
+if [[ -t 0 ]]; then
+  export PINENTRY_USER_DATA=tty
+else
+  unset PINENTRY_USER_DATA
+fi
