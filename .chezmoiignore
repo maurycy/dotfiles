@@ -4,6 +4,8 @@ README.md
 CLAUDE.md
 
 TODO.md
+.DS_Store
+**/.DS_Store
 
 # macOS-only ignores (Linux files to skip on macOS)
 {{ if eq .chezmoi.os "darwin" }}
@@ -24,6 +26,11 @@ darwin-chrome-policies.sh
 {{ if semverCompare "< 2.5.0" $gpg }}
 .config/restic
 .ssh/config.d
+{{ end }}
+
+# restic only on gimel
+{{ if ne .chezmoi.hostname "gimel" }}
+.config/restic
 {{ end }}
 
 # ~/.zshrc.local only on hosts with an encrypted blob in .hosts/
