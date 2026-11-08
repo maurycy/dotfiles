@@ -24,7 +24,7 @@ _history_sync() {
   zmodload zsh/system || return 1
   _is_safe_parent "$HISTFILE" || return 1
   local lock="$HISTFILE.retention.lock" state="$HISTFILE.retention"
-  local fd new='' old='' saved='' next=0 dropped=0
+  local fd new='' old='' saved='' next=0 dropped=0 f
   local -A info
   local SAVEHIST=$HISTSIZE
   {
@@ -38,6 +38,12 @@ _history_sync() {
     _is_safe_source "$HISTFILE" || return 1
     _is_safe_source "$lock" strict || return 1
     zsystem flock -t 2 -i 0.02 -f fd "$lock" || return 1
+    # Scratch files exist only while a shell holds the lock; any present now
+    # were orphaned by a shell that died mid-sync (SIGHUP runs zshexit from
+    # the signal handler and exits before the outer always block).
+    for f in "$HISTFILE".(new|old).??????(N.); do
+      _is_safe_source "$f" strict && _history_remove "$f"
+    done
     if [[ ! -e $state && ! -L $state ]]; then
       ( umask 077; setopt NOCLOBBER; : > "$state" ) 2>/dev/null
     fi
