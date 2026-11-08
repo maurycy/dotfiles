@@ -3,5 +3,6 @@
   "model": "opus",
   "disableRemoteControl": true,
   "theme": "dark",
+  "tui": "default",
   "remoteControlAtStartup": false
 }
