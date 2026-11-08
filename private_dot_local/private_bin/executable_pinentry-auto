@@ -1,0 +1,3 @@
+#!/bin/sh
+[ "$PINENTRY_USER_DATA" = tty ] && exec /opt/homebrew/bin/pinentry-tty "$@"
+exec /opt/homebrew/bin/pinentry-mac "$@"
