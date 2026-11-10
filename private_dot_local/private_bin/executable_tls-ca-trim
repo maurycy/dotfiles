@@ -19,15 +19,15 @@ else
 fi
 [ -n "$src" ] && [ -r "$src" ] || { echo "tls-ca-trim: no source bundle found" >&2; exit 1; }
 [ -r "$list" ] || { echo "tls-ca-trim: missing $list" >&2; exit 1; }
-# LibreSSL prints subjects as /C=US/O=..., OpenSSL 3 as C=US, O=...; the
-# allowlist uses the latter, so insist on OpenSSL 3.
+# LibreSSL prints subjects as /C=US/O=..., OpenSSL 3 and 4 as C=US, O=...;
+# the allowlist uses the latter, so insist on OpenSSL 3 or 4.
 ossl=""
-for o in /opt/homebrew/opt/openssl@3/bin/openssl openssl; do
-  if command -v "$o" >/dev/null 2>&1 && "$o" version 2>/dev/null | grep -q '^OpenSSL 3'; then
+for o in /opt/homebrew/opt/openssl@3/bin/openssl /opt/homebrew/opt/openssl/bin/openssl openssl; do
+  if command -v "$o" >/dev/null 2>&1 && "$o" version 2>/dev/null | grep -q '^OpenSSL [34]'; then
     ossl="$o"; break
   fi
 done
-[ -n "$ossl" ] || { echo "tls-ca-trim: OpenSSL 3 not found" >&2; exit 1; }
+[ -n "$ossl" ] || { echo "tls-ca-trim: OpenSSL 3 or 4 not found" >&2; exit 1; }
 mkdir -p "$cfg"
 chmod 700 "$cfg"
 tmp=$(mktemp "$out.XXXXXX")

@@ -1,5 +1,5 @@
 # Root CAs the curated TLS bundle keeps. One subject per line, exactly as
-# `openssl pkcs7 -print_certs` (OpenSSL 3) prints it, minus "subject=".
+# `openssl pkcs7 -print_certs` (OpenSSL 3 or 4) prints it, minus "subject=".
 # Measured 2026-10-21 against 38 hosts in daily use (github, ghcr, npm,
 # pypi, brew, google, apple, anthropic, cloudflare, purelymail, yubico,
 # crates, go proxy, kernel.org, tailscale, dropbox, banks, carriers):
