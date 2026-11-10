@@ -8,6 +8,14 @@ typeset -U path fpath
 # history: HISTFILE setup, 8-hour retention, secret-dropping zshaddhistory hook
 {{ template "history.zsh" . }}
 
+# Expire SQL history again after psql exits, including long-lived sessions.
+if _is_safe_source "$HOME/.local/bin/psql-history"; then
+  source "$HOME/.local/bin/psql-history"
+  _psql_history_expire
+  precmd_functions+=( _psql_history_expire )
+  zshexit_functions+=( _psql_history_expire )
+fi
+
 # env
 export EDITOR=vim
 export DISABLE_SPRING=1
