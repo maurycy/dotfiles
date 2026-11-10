@@ -7,8 +7,11 @@
 -- \endif
 
 \set QUIET                                    \\-- Don't print welcome message etc.
-\set HISTFILE ~/.cache/psql-history- :DBNAME  \\-- Keep history per database
-\set HISTSIZE          -1                     \\-- Infinite history
+-- Separate databases and fixed 8-hour windows; newer entries may expire sooner.
+\setenv PSQL_HISTORY_DB :DBNAME
+\set HISTFILE `"$HOME/.local/bin/psql-history" || printf /dev/null`
+\setenv PSQL_HISTORY_DB
+\set HISTSIZE          10000                  \\-- Bound in-memory and saved history
 \set HISTCONTROL       ignoredups             \\-- Don't store duplicates in history
 -- \set PROMPT2           '%R%# '                \\-- No database name in the line continuation prompt.
 \set COMP_KEYWORD_CASE lower                  \\-- Complete keywords to lower case.

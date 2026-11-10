@@ -1,0 +1,58 @@
+#!/bin/zsh
+# psql has no per-entry timestamps. Use fixed 8-hour windows (UTC).
+# This file is also sourced by .zshrc to expire history at prompts and exit.
+# Cleanup runs on use, not on a timer while all shells are idle or closed.
+
+_psql_history_expire() {
+  emulate -L zsh
+  zmodload zsh/datetime
+  local current=$(( EPOCHSECONDS / 28800 )) f name
+  local root="${XDG_CACHE_HOME:-$HOME/.cache}/psql"
+  local helper="$HOME/.local/bin/prm"
+  local -a files remove=( rm -f -- )
+  # Legacy files have no timestamps; retire them rather than renew their age.
+  files=( "$HOME"/.cache/psql-history-*(N.) )
+  for f in "$root"/<->-*(N.); do
+    name=${f:t}
+    (( ${name%%-*} < current )) && files+=( "$f" )
+  done
+  (( $#files )) || return 0
+  if _is_safe_source "$helper" && [[ -x $helper ]]; then
+    remove=( "$helper" --files-only -- )
+  fi
+  for f in "${files[@]}"; do
+    _is_safe_source "$f" || return 1
+    command "${remove[@]}" "$f" || return 1
+  done
+  return 0
+}
+
+_psql_history_path() {
+  emulate -L zsh
+  zmodload zsh/datetime
+  local root="${XDG_CACHE_HOME:-$HOME/.cache}/psql" file db
+  local current=$(( EPOCHSECONDS / 28800 ))
+  _psql_history_expire || return 1
+  ( umask 077; mkdir -p -- "$root" ) || return 1
+  _is_safe_dir "$root" || return 1
+  chmod 700 "$root" || return 1
+  # Database names can contain slashes, spaces, and shell metacharacters.
+  db=$(printf '%s' "${PSQL_HISTORY_DB:-}" | od -An -tx1 | tr -d ' \n') || return 1
+  file="$root/$current-$db"
+  if [[ ! -e $file && ! -L $file ]]; then
+    ( umask 077; setopt NOCLOBBER; : > "$file" ) 2>/dev/null
+  fi
+  _is_safe_source "$file" strict || return 1
+  print -r -- "$file"
+}
+
+if [[ $ZSH_EVAL_CONTEXT == toplevel ]]; then
+  if [[ ${1:-} == --expire ]]; then
+    _psql_history_expire
+  else
+    _psql_history_path || {
+      print -u2 'psql-history: history disabled: unsafe path or failed update'
+      exit 1
+    }
+  fi
+fi
