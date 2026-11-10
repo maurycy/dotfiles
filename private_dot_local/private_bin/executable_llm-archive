@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 umask 077
 # llm-archive - archive documents by date using LLM vision
 # style inspired by https://get.chezmoi.io
@@ -25,6 +25,7 @@ init_state() {
 	printf '0' > "${STATE_DIR}/copied"
 	printf '0' > "${STATE_DIR}/duplicates"
 	printf '0' > "${STATE_DIR}/skipped"
+	printf '0' > "${STATE_DIR}/failed"
 	: > "${STATE_DIR}/copied_files"
 	: > "${STATE_DIR}/duplicate_files"
 	: > "${STATE_DIR}/skipped_files"
@@ -187,11 +188,20 @@ process_file() {
 			append_list duplicate_files "${file}"
 			log_action "${basename} (${date_str}) - duplicate"
 		else
+			if [ -e "${dest}/${basename}" ] || [ -L "${dest}/${basename}" ]; then
+				log_err "destination already exists with different contents: ${dest}/${basename}"
+				return 1
+			fi
 			if [ "${DRY_RUN}" = "true" ]; then
 				log_action "${basename} (${date_str}) -> ${dest}/"
 			else
-				mkdir -p "${dest}"
-				cp -n "${file}" "${dest}/"
+				mkdir -p "${dest}" || return 1
+				cp -n "${file}" "${dest}/" || return 1
+				# cp -n can succeed without copying when the destination appears.
+				cmp -s "${file}" "${dest}/${basename}" || {
+					log_err "archived contents do not match: ${dest}/${basename}"
+					return 1
+				}
 			fi
 			inc_counter copied
 			append_list copied_files "${dest}/${basename}"
@@ -209,9 +219,10 @@ print_summary() {
 	copied=$(cat "${STATE_DIR}/copied")
 	duplicates=$(cat "${STATE_DIR}/duplicates")
 	skipped=$(cat "${STATE_DIR}/skipped")
+	failed=$(cat "${STATE_DIR}/failed")
 
 	printf '\n=== Summary ===\n' >&2
-	printf 'Copied: %d | Duplicates: %d | Skipped: %d\n' "${copied}" "${duplicates}" "${skipped}" >&2
+	printf 'Copied: %d | Duplicates: %d | Skipped: %d | Failed: %d\n' "${copied}" "${duplicates}" "${skipped}" "${failed}" >&2
 
 	if [ "${copied}" -gt 0 ] && [ "${DRY_RUN}" = "false" ]; then
 		printf '\nCopied files (%d):\n' "${copied}" >&2
@@ -327,7 +338,10 @@ main() {
 		IFS='
 '
 		for file in ${files}; do
-			process_file "${file}" || log_err "failed to process: ${file}"
+			process_file "${file}" || {
+				log_err "failed to process: ${file}"
+				inc_counter failed
+			}
 		done
 		IFS="${OLD_IFS}"
 	else
@@ -354,11 +368,15 @@ main() {
 		set -- "$@" ")" -print0
 
 		"$@" | while IFS= read -r -d '' file; do
-			process_file "${file}" || log_err "failed to process: ${file}"
+			process_file "${file}" || {
+				log_err "failed to process: ${file}"
+				inc_counter failed
+			}
 		done || true
 	fi
 
 	print_summary
+	[ "$(cat "${STATE_DIR}/failed")" -eq 0 ]
 }
 
 main "$@"
