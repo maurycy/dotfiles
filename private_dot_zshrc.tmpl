@@ -163,6 +163,20 @@ mupdate() {
   _is_brew_pkg() {
     command -v brew >/dev/null && brew list "$1" &>/dev/null
   }
+  # uv locks its cache with flock(2). util-linux flock(1) tests that exactly
+  # on Linux; macOS has no flock(1) but always ships lsof. With neither,
+  # report busy so the prune is skipped rather than risking a hang.
+  _uv_cache_busy() {
+    local lock="$(uv cache dir)/.lock"
+    [[ -e "$lock" ]] || return 1
+    if command -v flock >/dev/null; then
+      ! flock -n -x "$lock" true
+    elif command -v lsof >/dev/null; then
+      lsof -t -- "$lock" >/dev/null 2>&1
+    else
+      return 0
+    fi
+  }
 
   # One GraphQL call compares every fork's default branch with its parent;
   # only forks that differ get a gh repo sync (which defaults to the parent),
@@ -180,7 +194,7 @@ mupdate() {
   # holds the cache, and it is only housekeeping: skip it instead of hanging
   command -v uv >/dev/null && {
     { _is_brew_pkg uv || uv self update; } || return
-    if lsof -t -- "$(uv cache dir)/.lock" >/dev/null 2>&1; then
+    if _uv_cache_busy; then
       print -u2 "mupdate: uv cache in use, skipping prune"
     else
       uv cache prune || return
@@ -231,7 +245,7 @@ mupdate() {
 
   whence -w mupdate_local >/dev/null 2>&1 && { mupdate_local || true; }
 
-  unfunction _is_brew_pkg 2>/dev/null
+  unfunction _is_brew_pkg _uv_cache_busy 2>/dev/null
 }
 
 # notes (n / ns / nf): topical markdown knowledge base
