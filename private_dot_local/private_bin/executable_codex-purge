@@ -5,7 +5,8 @@
 # ///
 """Purge Codex sessions inactive for one calendar month through its local API.
 
-The cutoff uses UTC. Requires uv and a running local Codex app-server.
+The cutoff uses UTC. Requires uv. Starts the local Codex app-server when it is
+not running, and stops it again afterwards.
 Preview by default; --apply deletes expired persistent sessions.
 Discovers sessions through the API and local rollout filenames.
 Do not resume old sessions during cleanup: checking and deleting are separate
@@ -42,28 +43,38 @@ def rollout_ids():
             yield str(UUID(path.stem[-36:]))
 
 
+def daemon(command):
+    result = subprocess.run(
+        ["codex", "app-server", "daemon", command],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode:
+        raise RuntimeError(f"codex app-server daemon {command}: {result.stderr.strip()}")
+    return json.loads(result.stdout)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="delete expired sessions")
     args = parser.parse_args()
     cutoff = month_ago(datetime.now(timezone.utc))
-    info = json.loads(
-        subprocess.check_output(
-            ["codex", "app-server", "daemon", "version"],
-            text=True,
-            timeout=30,
-        )
-    )
-    if info["status"] != "running":
-        raise RuntimeError("the local Codex server is not running")
-    with unix_connect(
-        info["socketPath"],
-        open_timeout=10,
-        close_timeout=5,
-        max_size=8 * 1024 * 1024,
-        legacy=True,
-    ) as connection:
-        purge(connection, cutoff, args.apply)
+    info = daemon("start")
+    if info["status"] not in ("started", "alreadyRunning"):
+        raise RuntimeError(f"the local Codex server is {info['status']}")
+    try:
+        with unix_connect(
+            info["socketPath"],
+            open_timeout=10,
+            close_timeout=5,
+            max_size=8 * 1024 * 1024,
+            legacy=True,
+        ) as connection:
+            purge(connection, cutoff, args.apply)
+    finally:
+        if info["status"] == "started":
+            daemon("stop")
 
 
 def purge(connection, cutoff, apply):
