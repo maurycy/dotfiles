@@ -47,6 +47,7 @@ def daemon(command):
     result = subprocess.run(
         ["codex", "app-server", "daemon", command],
         capture_output=True,
+        check=False,
         text=True,
         timeout=60,
     )
