@@ -52,7 +52,9 @@ def daemon(command):
         timeout=60,
     )
     if result.returncode:
-        raise RuntimeError(f"codex app-server daemon {command}: {result.stderr.strip()}")
+        raise RuntimeError(
+            f"codex app-server daemon {command}: {result.stderr.strip()}"
+        )
     return json.loads(result.stdout)
 
 
