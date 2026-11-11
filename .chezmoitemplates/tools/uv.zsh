@@ -15,4 +15,26 @@ if (( $+commands[uv] )); then
     compdef _uv uv
   fi
   unset _uv_cache
+
+  # 7-day release cooldown for fresh resolutions (uvx, --with, tool, pip).
+  # skipped under a uv.lock: a global exclude-newer makes uv re-resolve
+  # and rewrite every existing lockfile. bypass: UV_EXCLUDE_NEWER="0 days"
+  _uv_locked_project() {
+    local d="$PWD"
+    while [[ "$d" != / ]]; do
+      [[ -e "$d/uv.lock" ]] && return 0
+      d="${d:h}"
+    done
+    return 1
+  }
+  uv() {
+    if _uv_locked_project; then
+      command uv "$@"
+    else
+      UV_EXCLUDE_NEWER="${UV_EXCLUDE_NEWER-7 days}" command uv "$@"
+    fi
+  }
+  uvx() {
+    UV_EXCLUDE_NEWER="${UV_EXCLUDE_NEWER-7 days}" command uvx "$@"
+  }
 fi
