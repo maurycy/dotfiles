@@ -4,5 +4,8 @@
   "disableRemoteControl": true,
   "theme": "dark",
   "tui": "default",
-  "remoteControlAtStartup": false
+  "remoteControlAtStartup": false,
+  "env": {
+    "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "1000"
+  }
 }
