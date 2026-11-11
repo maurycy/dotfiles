@@ -34,7 +34,9 @@ export SSH_SK_PROVIDER=/usr/lib/ssh-keychain.dylib
 # gcloud runs on Homebrew's python@3.14 instead of its own bundled Python
 # plus a venv under ~/.config/gcloud. Pinned to 3.14, the version gcloud
 # itself recommends; the unversioned python3 symlink moves with brew.
-export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.14
+# Without that formula gcloud keeps its own Python discovery: a pin to a
+# missing interpreter breaks install.sh and every gcloud call.
+[[ -x /opt/homebrew/bin/python3.14 ]] && export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.14
 {{- end }}
 
 {{- if eq .chezmoi.os "darwin" }}
