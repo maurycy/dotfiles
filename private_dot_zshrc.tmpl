@@ -176,7 +176,16 @@ mupdate() {
   command -v fastfetch >/dev/null && fastfetch
   command -v chezmoi >/dev/null && { chezmoi update || return; }
   command -v codex >/dev/null && command -v codex-purge >/dev/null && { codex-purge --apply || return; }
-  command -v uv >/dev/null && { { _is_brew_pkg uv || uv self update; } && uv cache prune || return; }
+  # prune blocks on an exclusive lock while any long-lived uv/uvx process
+  # holds the cache, and it is only housekeeping: skip it instead of hanging
+  command -v uv >/dev/null && {
+    { _is_brew_pkg uv || uv self update; } || return
+    if lsof -t -- "$(uv cache dir)/.lock" >/dev/null 2>&1; then
+      print -u2 "mupdate: uv cache in use, skipping prune"
+    else
+      uv cache prune || return
+    fi
+  }
 
   if whence -w backup >/dev/null 2>&1; then
     backup || return
