@@ -42,6 +42,7 @@ class PurgeTests(unittest.TestCase):
         changes=None,
         rollouts=(),
         default_home=False,
+        daemon_status="alreadyRunning",
     ):
         requests, deleted, api_errors = [], set(), []
 
@@ -129,11 +130,13 @@ class PurgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir="/tmp", prefix="purge-test-") as tmp:
             sock = str(Path(tmp, "server.sock"))
             cli = Path(tmp, "codex")
-            info = json.dumps({"status": "running", "socketPath": sock})
+            calls = Path(tmp, "daemon-calls")
+            info = json.dumps({"status": daemon_status, "socketPath": sock})
             cli.write_text(
                 f"#!{sys.executable}\nimport sys\n"
-                "assert sys.argv[1:] == ['app-server', 'daemon', 'version']\n"
-                f"print({info!r})\n"
+                "assert sys.argv[1:3] == ['app-server', 'daemon']\n"
+                f"open({str(calls)!r}, 'a').write(sys.argv[3] + '\\n')\n"
+                f"print({info!r} if sys.argv[3] == 'start' else '{{}}')\n"
             )
             cli.chmod(0o700)
             home = Path(tmp, "home")
@@ -170,6 +173,7 @@ class PurgeTests(unittest.TestCase):
                 finally:
                     server.shutdown()
                     worker.join(timeout=5)
+            self.daemon_calls = calls.read_text().split() if calls.exists() else []
         return result, requests, deleted
 
     def test_preview_paginates_active_and_archived_without_deleting(self):
@@ -335,6 +339,30 @@ class PurgeTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(method, result.stderr)
                 self.assertFalse(deleted)
+
+    def test_daemon_left_running_when_already_up(self):
+        result, _, _ = self.run_purge([thread("a")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.daemon_calls, ["start"])
+
+    def test_daemon_started_here_is_stopped(self):
+        result, _, _ = self.run_purge([thread("a")], daemon_status="started")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.daemon_calls, ["start", "stop"])
+
+    def test_daemon_started_here_is_stopped_after_failure(self):
+        result, _, _ = self.run_purge(
+            [thread("a")], daemon_status="started", error="thread/list"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.daemon_calls, ["start", "stop"])
+
+    def test_unexpected_daemon_status_fails(self):
+        result, requests, _ = self.run_purge([thread("a")], daemon_status="stopped")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stopped", result.stderr)
+        self.assertFalse(requests)
+        self.assertEqual(self.daemon_calls, ["start"])
 
     def test_calendar_boundary(self):
         loader = importlib.machinery.SourceFileLoader("codex_purge", str(SCRIPT))
