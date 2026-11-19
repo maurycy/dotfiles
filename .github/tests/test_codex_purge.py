@@ -1,7 +1,5 @@
 """Exercise the executable against a real WebSocket server on a Unix socket."""
 
-import importlib.machinery
-import importlib.util
 import json
 import os
 import subprocess
@@ -11,7 +9,6 @@ import threading
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
 
 from websockets.exceptions import ConnectionClosedError
 from websockets.sync.server import unix_serve
@@ -189,11 +186,11 @@ class PurgeTests(unittest.TestCase):
                 self.assertTrue(r["params"]["useStateDbOnly"])
                 self.assertIn("subAgentThreadSpawn", r["params"]["sourceKinds"])
 
-    def test_monthly_apply_keeps_recent_open_and_ephemeral(self):
+    def test_apply_keeps_recent_open_and_ephemeral(self):
         now = datetime.now(timezone.utc).timestamp()
         entries = [
-            thread("old", updatedAt=now - 60 * 86400),
-            thread("recent", updatedAt=now - 20 * 86400),
+            thread("old", updatedAt=now - 91 * 86400),
+            thread("recent", updatedAt=now - 89 * 86400),
             thread("loaded", status={"type": "idle"}),
             thread("active", status={"type": "active"}),
             thread("temporary", ephemeral=True),
@@ -363,28 +360,6 @@ class PurgeTests(unittest.TestCase):
         self.assertIn("stopped", result.stderr)
         self.assertFalse(requests)
         self.assertEqual(self.daemon_calls, ["start"])
-
-    def test_calendar_boundary(self):
-        loader = importlib.machinery.SourceFileLoader("codex_purge", str(SCRIPT))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        module = importlib.util.module_from_spec(spec)
-        with patch.object(sys, "dont_write_bytecode", True):
-            loader.exec_module(module)
-        for now, expected in [
-            (
-                datetime(2026, 3, 31, tzinfo=timezone.utc),
-                datetime(2026, 2, 28, tzinfo=timezone.utc),
-            ),
-            (
-                datetime(2024, 3, 31, tzinfo=timezone.utc),
-                datetime(2024, 2, 29, tzinfo=timezone.utc),
-            ),
-            (
-                datetime(2026, 1, 31, tzinfo=timezone.utc),
-                datetime(2025, 12, 31, tzinfo=timezone.utc),
-            ),
-        ]:
-            self.assertEqual(module.month_ago(now), expected.timestamp())
 
 
 if __name__ == "__main__":

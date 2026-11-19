@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["websockets==17.3"]
 # ///
-"""Purge Codex sessions inactive for one calendar month through its local API.
+"""Purge Codex sessions inactive for 90 days through its local API.
 
 The cutoff uses UTC. Requires uv. Starts the local Codex app-server when it is
 not running, and stops it again afterwards.
@@ -14,26 +14,18 @@ API requests. Sessions open in independent app-server processes are not visible.
 """
 
 import argparse
-import calendar
 import itertools
 import json
 import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
 
 from websockets.exceptions import WebSocketException
 from websockets.sync.client import unix_connect
-
-
-def month_ago(now):
-    year, month = divmod(now.year * 12 + now.month - 2, 12)
-    month += 1
-    day = min(now.day, calendar.monthrange(year, month)[1])
-    return now.replace(year=year, month=month, day=day).timestamp()
 
 
 def rollout_ids():
@@ -62,7 +54,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="delete expired sessions")
     args = parser.parse_args()
-    cutoff = month_ago(datetime.now(timezone.utc))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).timestamp()
     info = daemon("start")
     if info["status"] not in ("started", "alreadyRunning"):
         raise RuntimeError(f"the local Codex server is {info['status']}")
